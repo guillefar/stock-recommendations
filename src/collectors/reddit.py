@@ -1,8 +1,9 @@
 import logging
 import re
+import time
 from datetime import datetime, timezone
 
-import praw
+import requests
 
 from src.config import Config
 
@@ -21,28 +22,37 @@ _STOPWORDS = {
     "ATH", "ATL", "YTD", "EOD", "EOY", "WTF", "LOL", "OP",
 }
 
+_REDDIT_JSON_URL = "https://www.reddit.com/r/stocks/hot.json"
+_USER_AGENT = "stock-recommendations-bot/1.0 (personal finance project)"
+
 
 def fetch_reddit_posts(cfg: Config) -> list[dict]:
-    """Fetches hot posts from /r/stocks filtered by score and upvote_ratio."""
-    reddit = praw.Reddit(
-        client_id=cfg.reddit_client_id,
-        client_secret=cfg.reddit_client_secret,
-        user_agent=cfg.reddit_user_agent,
-    )
+    """Fetches hot posts from /r/stocks using the public JSON API (no auth required)."""
+    headers = {"User-Agent": _USER_AGENT}
+    params = {"limit": 50, "raw_json": 1}
+
+    resp = requests.get(_REDDIT_JSON_URL, headers=headers, params=params, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+
     posts = []
-    for submission in reddit.subreddit("stocks").hot(limit=50):
-        if submission.score > 50 and submission.upvote_ratio > 0.7:
+    for child in data.get("data", {}).get("children", []):
+        s = child.get("data", {})
+        score = s.get("score", 0)
+        upvote_ratio = s.get("upvote_ratio", 0.0)
+        if score > 50 and upvote_ratio > 0.7:
             posts.append({
-                "id": submission.id,
-                "title": submission.title,
-                "url": submission.url,
-                "score": submission.score,
-                "upvote_ratio": submission.upvote_ratio,
+                "id": s.get("id", ""),
+                "title": s.get("title", ""),
+                "url": s.get("url", ""),
+                "score": score,
+                "upvote_ratio": upvote_ratio,
                 "created_at": datetime.fromtimestamp(
-                    submission.created_utc, tz=timezone.utc
+                    s.get("created_utc", 0), tz=timezone.utc
                 ).replace(tzinfo=None),
-                "selftext": (submission.selftext or "")[:500],
+                "selftext": (s.get("selftext") or "")[:500],
             })
+
     logger.info(f"Fetched {len(posts)} qualifying posts from /r/stocks")
     return posts
 
