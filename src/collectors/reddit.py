@@ -1,9 +1,8 @@
 import logging
 import re
-import time
 from datetime import datetime, timezone
 
-import requests
+import feedparser
 
 from src.config import Config
 
@@ -12,7 +11,6 @@ logger = logging.getLogger(__name__)
 _DOLLAR_TICKER = re.compile(r"\$([A-Z]{1,5})\b")
 _UPPER_WORD = re.compile(r"\b([A-Z]{2,5})\b")
 
-# Common English uppercase words that are not tickers
 _STOPWORDS = {
     "I", "A", "AN", "THE", "AND", "OR", "BUT", "FOR", "NOT", "IS", "ARE",
     "AT", "BY", "IN", "OF", "ON", "TO", "UP", "BE", "DO", "GO", "IF",
@@ -22,39 +20,48 @@ _STOPWORDS = {
     "ATH", "ATL", "YTD", "EOD", "EOY", "WTF", "LOL", "OP",
 }
 
-_REDDIT_JSON_URL = "https://www.reddit.com/r/stocks/hot.json"
-_USER_AGENT = "stock-recommendations-bot/1.0 (personal finance project)"
+_RSS_URL = "https://www.reddit.com/r/stocks/hot.rss?limit=50"
+_POST_ID_RE = re.compile(r"/comments/([a-z0-9]+)/")
 
 
 def fetch_reddit_posts(cfg: Config) -> list[dict]:
-    """Fetches hot posts from /r/stocks using the public JSON API (no auth required)."""
-    headers = {"User-Agent": _USER_AGENT}
-    params = {"limit": 50, "raw_json": 1}
+    """Fetches hot posts from /r/stocks via RSS (works from datacenter IPs, no auth needed)."""
+    try:
+        feed = feedparser.parse(
+            _RSS_URL,
+            request_headers={"User-Agent": "feedparser/6 (stock-recommendations personal project)"},
+        )
+        if not feed.entries:
+            logger.warning("Reddit RSS returned no entries")
+            return []
 
-    resp = requests.get(_REDDIT_JSON_URL, headers=headers, params=params, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
+        posts = []
+        for entry in feed.entries:
+            url = entry.get("link", "")
+            m = _POST_ID_RE.search(url)
+            post_id = m.group(1) if m else url
 
-    posts = []
-    for child in data.get("data", {}).get("children", []):
-        s = child.get("data", {})
-        score = s.get("score", 0)
-        upvote_ratio = s.get("upvote_ratio", 0.0)
-        if score > 50 and upvote_ratio > 0.7:
+            published = entry.get("published_parsed")
+            if published:
+                created_at = datetime(*published[:6], tzinfo=timezone.utc).replace(tzinfo=None)
+            else:
+                created_at = datetime.utcnow()
+
             posts.append({
-                "id": s.get("id", ""),
-                "title": s.get("title", ""),
-                "url": s.get("url", ""),
-                "score": score,
-                "upvote_ratio": upvote_ratio,
-                "created_at": datetime.fromtimestamp(
-                    s.get("created_utc", 0), tz=timezone.utc
-                ).replace(tzinfo=None),
-                "selftext": (s.get("selftext") or "")[:500],
+                "id": post_id,
+                "title": entry.get("title", ""),
+                "url": url,
+                "score": 0,       # not available in RSS
+                "upvote_ratio": 1.0,
+                "created_at": created_at,
+                "selftext": (entry.get("summary") or "")[:500],
             })
 
-    logger.info(f"Fetched {len(posts)} qualifying posts from /r/stocks")
-    return posts
+        logger.info(f"Fetched {len(posts)} posts from /r/stocks RSS")
+        return posts
+    except Exception as e:
+        logger.warning(f"Reddit RSS fetch failed: {e} — continuing without Reddit data")
+        return []
 
 
 def extract_ticker_mentions(
