@@ -1,8 +1,9 @@
+import json
 import logging
 import re
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
-
-import feedparser
 
 from src.config import Config
 
@@ -20,48 +21,59 @@ _STOPWORDS = {
     "ATH", "ATL", "YTD", "EOD", "EOY", "WTF", "LOL", "OP",
 }
 
-_RSS_URL = "https://www.reddit.com/r/stocks/hot.rss?limit=50"
-_POST_ID_RE = re.compile(r"/comments/([a-z0-9]+)/")
+_JSON_URL = "https://www.reddit.com/r/stocks/hot.json?limit=50"
+_USER_AGENT = "stock-recommendations/1.0 (personal project)"
+
+MIN_SCORE = 50
+MIN_UPVOTE_RATIO = 0.7
 
 
 def fetch_reddit_posts(cfg: Config) -> list[dict]:
-    """Fetches hot posts from /r/stocks via RSS (works from datacenter IPs, no auth needed)."""
+    """Fetches hot posts from /r/stocks via Reddit's public JSON endpoint.
+
+    Filters by SPEC thresholds: score >= 50 and upvote_ratio >= 0.7.
+    """
     try:
-        feed = feedparser.parse(
-            _RSS_URL,
-            request_headers={"User-Agent": "feedparser/6 (stock-recommendations personal project)"},
-        )
-        if not feed.entries:
-            logger.warning("Reddit RSS returned no entries")
-            return []
-
-        posts = []
-        for entry in feed.entries:
-            url = entry.get("link", "")
-            m = _POST_ID_RE.search(url)
-            post_id = m.group(1) if m else url
-
-            published = entry.get("published_parsed")
-            if published:
-                created_at = datetime(*published[:6], tzinfo=timezone.utc).replace(tzinfo=None)
-            else:
-                created_at = datetime.utcnow()
-
-            posts.append({
-                "id": post_id,
-                "title": entry.get("title", ""),
-                "url": url,
-                "score": 0,       # not available in RSS
-                "upvote_ratio": 1.0,
-                "created_at": created_at,
-                "selftext": (entry.get("summary") or "")[:500],
-            })
-
-        logger.info(f"Fetched {len(posts)} posts from /r/stocks RSS")
-        return posts
-    except Exception as e:
-        logger.warning(f"Reddit RSS fetch failed: {e} — continuing without Reddit data")
+        req = urllib.request.Request(_JSON_URL, headers={"User-Agent": _USER_AGENT})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            payload = json.loads(resp.read())
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as e:
+        logger.warning(f"Reddit JSON fetch failed: {e} — continuing without Reddit data")
         return []
+
+    children = payload.get("data", {}).get("children", [])
+    posts = []
+    dropped = 0
+    for child in children:
+        d = child.get("data", {})
+        score = d.get("score", 0)
+        upvote_ratio = d.get("upvote_ratio", 0.0)
+        if score < MIN_SCORE or upvote_ratio < MIN_UPVOTE_RATIO:
+            dropped += 1
+            continue
+
+        created_utc = d.get("created_utc")
+        if created_utc:
+            created_at = datetime.fromtimestamp(created_utc, tz=timezone.utc).replace(tzinfo=None)
+        else:
+            created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        permalink = d.get("permalink") or ""
+        posts.append({
+            "id": d.get("id", ""),
+            "title": d.get("title", ""),
+            "url": f"https://www.reddit.com{permalink}" if permalink else d.get("url", ""),
+            "score": score,
+            "upvote_ratio": upvote_ratio,
+            "created_at": created_at,
+            "selftext": (d.get("selftext") or "")[:500],
+        })
+
+    logger.info(
+        f"Fetched {len(posts)} posts from /r/stocks "
+        f"(dropped {dropped} below score>={MIN_SCORE} or upvote_ratio>={MIN_UPVOTE_RATIO})"
+    )
+    return posts
 
 
 def extract_ticker_mentions(
