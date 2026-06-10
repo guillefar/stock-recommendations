@@ -66,7 +66,7 @@ Total Claude calls per run: `2 + N` where N = number of active tickers.
 ## Infrastructure
 
 - **Runtime**: Python 3.11 (CI) / 3.14 (local).
-- **CI**: [.github/workflows/run_recommendations.yml](.github/workflows/run_recommendations.yml) — cron (2×/day, 11:00 & 17:00 UTC, Mon–Fri) + `workflow_dispatch`.
+- **CI**: [.github/workflows/run_recommendations.yml](.github/workflows/run_recommendations.yml) — cron (2×/day, 11:00 & 17:00 ART / 14:00 & 20:00 UTC, Mon–Fri) + `workflow_dispatch`.
 - **Secrets** (GitHub Actions): `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`, `ANTHROPIC_API_KEY`, `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`.
 - **Dashboards** (datasource uid `cfadv004ogglcf`, MySQL):
   - [grafana/recommendations_dashboard.json](grafana/recommendations_dashboard.json) — the original overview (schema-v2 export).

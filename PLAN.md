@@ -48,7 +48,7 @@ On branch **`chore/cron-2x-daily-and-datetime-cleanup`** (off `main` @ `370810e`
 - [ ] **Do a real (non-dry-run) execution with the new prompt** so the DB gets decisive BUY/SELL rows and the dashboard/outcomes have fresh data to show. (Dry-run already validated; `--dry-run` writes nothing.)
 - [ ] **Push the branch / open a PR** if the user wants it on a remote (none currently configured).
 - [ ] **Constrain the action set per phase (prompt adherence).** Holdings occasionally come back `WATCH`, which under the rubric should be HOLD/SELL only; watchlist names should be BUY/WATCH/AVOID only. Either tighten the prompt wording or post-process `action` against `phase`. Low-risk, improves interpretability.
-- [x] **Fix workflow schedule** — done 2026-06-11. Now two cron lines `0 11 * * 1-5` and `0 17 * * 1-5` (11:00 & 17:00 UTC, Mon–Fri) with accurate comments, matching the SPEC 2×/day. (Times assumed UTC, as GitHub Actions cron always is — confirm if local was intended.)
+- [x] **Fix workflow schedule** — done 2026-06-11. Two cron lines `0 14 * * 1-5` and `0 20 * * 1-5` = **11:00 & 17:00 ART (UTC-3)**, Mon–Fri, matching the SPEC 2×/day. (User confirmed cron times are always specified in local Argentina time; GitHub Actions cron is UTC so the offset is baked in.)
 
 ### Medium priority
 
