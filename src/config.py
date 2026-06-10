@@ -10,6 +10,9 @@ class Config:
     db_pass: str
     db_name: str
     anthropic_api_key: str
+    reddit_client_id: str = ""
+    reddit_client_secret: str = ""
+    reddit_user_agent: str = "stock-recommendations/1.0"
     dry_run: bool = False
 
 
@@ -21,4 +24,7 @@ def load_config() -> Config:
         db_pass=os.environ["DB_PASS"],
         db_name=os.environ["DB_NAME"],
         anthropic_api_key=os.environ["ANTHROPIC_API_KEY"],
+        reddit_client_id=os.environ.get("REDDIT_CLIENT_ID", ""),
+        reddit_client_secret=os.environ.get("REDDIT_CLIENT_SECRET", ""),
+        reddit_user_agent=os.environ.get("REDDIT_USER_AGENT", "stock-recommendations/1.0"),
     )

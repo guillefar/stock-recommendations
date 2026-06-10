@@ -1,9 +1,9 @@
-import json
 import logging
 import re
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
+
+import praw
+import prawcore
 
 from src.config import Config
 
@@ -21,56 +21,69 @@ _STOPWORDS = {
     "ATH", "ATL", "YTD", "EOD", "EOY", "WTF", "LOL", "OP",
 }
 
-_JSON_URL = "https://www.reddit.com/r/stocks/hot.json?limit=50"
-_USER_AGENT = "stock-recommendations/1.0 (personal project)"
+SUBREDDIT = "stocks"
+FETCH_LIMIT = 50
 
 MIN_SCORE = 50
 MIN_UPVOTE_RATIO = 0.7
 
 
 def fetch_reddit_posts(cfg: Config) -> list[dict]:
-    """Fetches hot posts from /r/stocks via Reddit's public JSON endpoint.
+    """Fetches hot posts from /r/stocks via PRAW (authenticated, read-only).
 
+    The unauthenticated public `.json` endpoint is blocked (HTTP 403) from both
+    local and CI IPs, so this uses a Reddit "script" app's client credentials.
     Filters by SPEC thresholds: score >= 50 and upvote_ratio >= 0.7.
+    Returns [] (and logs) if credentials are missing or Reddit errors.
     """
-    try:
-        req = urllib.request.Request(_JSON_URL, headers={"User-Agent": _USER_AGENT})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            payload = json.loads(resp.read())
-    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as e:
-        logger.warning(f"Reddit JSON fetch failed: {e} — continuing without Reddit data")
+    if not cfg.reddit_client_id or not cfg.reddit_client_secret:
+        logger.warning(
+            "Reddit credentials not set (REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET) "
+            "— continuing without Reddit data"
+        )
         return []
 
-    children = payload.get("data", {}).get("children", [])
+    try:
+        reddit = praw.Reddit(
+            client_id=cfg.reddit_client_id,
+            client_secret=cfg.reddit_client_secret,
+            user_agent=cfg.reddit_user_agent,
+            check_for_updates=False,
+        )
+        reddit.read_only = True
+        hot = list(reddit.subreddit(SUBREDDIT).hot(limit=FETCH_LIMIT))
+    except (prawcore.PrawcoreException, Exception) as e:
+        logger.warning(f"Reddit fetch failed: {e} — continuing without Reddit data")
+        return []
+
     posts = []
     dropped = 0
-    for child in children:
-        d = child.get("data", {})
-        score = d.get("score", 0)
-        upvote_ratio = d.get("upvote_ratio", 0.0)
+    for p in hot:
+        score = p.score or 0
+        upvote_ratio = p.upvote_ratio or 0.0
         if score < MIN_SCORE or upvote_ratio < MIN_UPVOTE_RATIO:
             dropped += 1
             continue
 
-        created_utc = d.get("created_utc")
+        created_utc = getattr(p, "created_utc", None)
         if created_utc:
             created_at = datetime.fromtimestamp(created_utc, tz=timezone.utc).replace(tzinfo=None)
         else:
             created_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
-        permalink = d.get("permalink") or ""
+        permalink = p.permalink or ""
         posts.append({
-            "id": d.get("id", ""),
-            "title": d.get("title", ""),
-            "url": f"https://www.reddit.com{permalink}" if permalink else d.get("url", ""),
+            "id": p.id or "",
+            "title": p.title or "",
+            "url": f"https://www.reddit.com{permalink}" if permalink else (p.url or ""),
             "score": score,
             "upvote_ratio": upvote_ratio,
             "created_at": created_at,
-            "selftext": (d.get("selftext") or "")[:500],
+            "selftext": (p.selftext or "")[:500],
         })
 
     logger.info(
-        f"Fetched {len(posts)} posts from /r/stocks "
+        f"Fetched {len(posts)} posts from /r/{SUBREDDIT} "
         f"(dropped {dropped} below score>={MIN_SCORE} or upvote_ratio>={MIN_UPVOTE_RATIO})"
     )
     return posts

@@ -16,8 +16,11 @@ _MACRO_SYSTEM = (
 )
 
 _RECOMMENDATION_SYSTEM = (
-    "Eres analista financiero conservador. Combinas señales técnicas, sentimiento "
-    "de Reddit y contexto macro para evaluar activos. NUNCA das consejos absolutos. "
+    "Eres analista financiero. Combinas señales técnicas, sentimiento de Reddit y "
+    "contexto macro para emitir una recomendación accionable por activo. Cuando la "
+    "evidencia lo respalda, das recomendaciones claras y decisivas — incluyendo BUY "
+    "y SELL — y reservas HOLD/WATCH/AVOID para cuando la evidencia es mixta, débil o "
+    "insuficiente. No te refugies por defecto en la opción neutral. "
     "Respondes en JSON estricto con el schema dado, sin texto adicional."
 )
 
@@ -96,11 +99,28 @@ Sentimiento Reddit:
 Contexto macro relevante:
 {macro_text}
 
-Responde SOLO con este JSON (sin texto adicional):
+Reglas de decisión según la posición:
+- Si YA tienes posición (HOLDING): elige SELL cuando hay señales bajistas claras
+  (deterioro técnico, ruptura de SMAs/soportes, RSI sobrecomprado revirtiendo, macro
+  negativo para el sector) o HOLD cuando la tendencia sigue intacta o las señales son
+  mixtas.
+- Si NO tienes posición (WATCHLIST): elige BUY cuando hay una entrada atractiva
+  (confluencia alcista: precio recuperando SMAs, RSI saliendo de sobreventa, momentum
+  y/o macro a favor), WATCH cuando es interesante pero sin un punto de entrada claro
+  todavía, o AVOID cuando las señales son negativas y no conviene entrar.
+
+Calibración de confidence (0.0–1.0):
+- 0.80–1.00: señales fuertemente alineadas en una dirección.
+- 0.60–0.79: alineación moderada con alguna señal en contra.
+- 0.40–0.59: señales mixtas o débiles.
+- 0.00–0.39: poca evidencia / dominado por ruido.
+
+Toma la acción decisiva (BUY/SELL) cuando la evidencia la respalde; no la evites por
+prudencia. Responde SOLO con este JSON (sin texto adicional):
 {{
   "action": "BUY|SELL|HOLD|WATCH|AVOID",
   "confidence": 0.0,
-  "reasoning": "2-4 frases máximo"
+  "reasoning": "2-4 frases máximo, citando las señales concretas que pesaron"
 }}"""
 
         response = self._client.messages.create(

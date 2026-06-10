@@ -21,6 +21,7 @@ A separate sibling project owns `tickers`, `holdings`, `watchlist`, `transaction
 - `daily_market_summary` — one row per calendar date.
 - `reddit_mentions` — audit trail of posts referencing tickers.
 - `macro_signals` — themes detected from headlines.
+- `recommendation_outcomes` — one row per recommendation per horizon (7d/30d); grades the forward return. Populated separately by `python -m src.evaluate_outcomes`, not by the main pipeline.
 
 Full DDL: [migrations/001_create_recommendation_tables.sql](migrations/001_create_recommendation_tables.sql).
 
@@ -29,6 +30,7 @@ Full DDL: [migrations/001_create_recommendation_tables.sql](migrations/001_creat
 ```
 src/
 ├── main.py                 # orchestrator (--dry-run supported)
+├── evaluate_outcomes.py    # standalone job: grades past recommendations vs realized prices
 ├── config.py               # env-var loader → Config dataclass
 ├── db.py                   # PyMySQL connection + get_active_tickers, get_known_symbols
 ├── collectors/
@@ -66,7 +68,9 @@ Total Claude calls per run: `2 + N` where N = number of active tickers.
 - **Runtime**: Python 3.11 (CI) / 3.14 (local).
 - **CI**: [.github/workflows/run_recommendations.yml](.github/workflows/run_recommendations.yml) — cron + `workflow_dispatch`.
 - **Secrets** (GitHub Actions): `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`, `ANTHROPIC_API_KEY`.
-- **Dashboard**: [grafana/recommendations_dashboard.json](grafana/recommendations_dashboard.json) — 1309-line Grafana export.
+- **Dashboards** (datasource uid `cfadv004ogglcf`, MySQL):
+  - [grafana/recommendations_dashboard.json](grafana/recommendations_dashboard.json) — the original overview (schema-v2 export).
+  - [grafana/daily_digest_dashboard.json](grafana/daily_digest_dashboard.json) — daily digest (same Grafana schema-v2 `elements`/`layout` format as the other dashboard). "Selected day" = the latest day inside the time-range picker, so narrowing the picker to one day shows that day's full summary, recommendations, macro signals, and top Reddit posts. Also carries an **Action History by Ticker** graph (action encoded SELL −2 … BUY +2, mirroring the confidence graph in the other dashboard), the action-history table, the outcomes table, and a hit-rate-by-action table. `phase` (HOLDING/WATCHLIST — do you own it) and `action` (the recommendation) are kept as distinct columns on purpose: they only looked redundant under the old always-HOLD/WATCH prompt and now diverge (e.g. HOLDING+SELL). Import via Dashboards → New → Import.
 
 ## Conventions
 
