@@ -1,12 +1,17 @@
 import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import pymysql
 
 from src.analysis.claude_client import MODEL
 
 logger = logging.getLogger(__name__)
+
+
+def _utcnow() -> datetime:
+    """Naive UTC timestamp (replaces deprecated datetime.utcnow())."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def write_macro_signals(conn: pymysql.Connection, signals: list[dict], dry_run: bool = False) -> list[int]:
@@ -25,7 +30,7 @@ def write_macro_signals(conn: pymysql.Connection, signals: list[dict], dry_run: 
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 (
-                    datetime.utcnow(),
+                    _utcnow(),
                     signal.get("theme"),
                     json.dumps(signal.get("affected_sectors", [])),
                     json.dumps(signal.get("direction", {})),
@@ -66,7 +71,7 @@ def write_reddit_mentions(
                         (post.get("url") or "")[:500],
                         post.get("score", 0),
                         post.get("created_at"),
-                        datetime.utcnow(),
+                        _utcnow(),
                     ),
                 )
             except pymysql.err.IntegrityError:
@@ -112,7 +117,7 @@ def write_recommendation(
             """,
             (
                 ticker_id,
-                datetime.utcnow(),
+                _utcnow(),
                 recommendation.get("action", "HOLD"),
                 recommendation.get("confidence"),
                 recommendation.get("reasoning"),
@@ -150,7 +155,7 @@ def write_daily_summary(
             """,
             (
                 date.today(),
-                datetime.utcnow(),
+                _utcnow(),
                 summary.get("summary"),
                 json.dumps(summary.get("hot_tickers", [])),
                 summary.get("overall_sentiment", "NEUTRAL"),

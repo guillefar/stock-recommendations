@@ -16,6 +16,13 @@ Pipeline is wired end-to-end and all modules exist. As of 2026-06-11 a feature b
 
 - _(none)_
 
+## Done (session 02 — 2026-06-11)
+
+On branch **`chore/cron-2x-daily-and-datetime-cleanup`** (off `main` @ `370810e`):
+
+- **`datetime.utcnow()` deprecation cleared.** Added a `_utcnow()` helper in [src/persistence/writers.py](src/persistence/writers.py) and swapped all 4 call sites; verified no `DeprecationWarning` under Python 3.14. `reddit.py` was already migrated (stale TODO).
+- **Workflow now runs 2×/day.** [.github/workflows/run_recommendations.yml](.github/workflows/run_recommendations.yml) has two cron lines (`0 11` and `0 17`, Mon–Fri) with accurate UTC comments, matching SPEC. Updated the secrets list in [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md) to include the three `REDDIT_*` vars while there.
+
 ## Done (this session — 2026-06-10 / 06-11)
 
 - **Committed everything** to branch `feat/decisive-recommendations-and-digest` (`35560d9`); `.env` and `.claude/` excluded. Not pushed — no known remote.
@@ -41,12 +48,12 @@ Pipeline is wired end-to-end and all modules exist. As of 2026-06-11 a feature b
 - [ ] **Do a real (non-dry-run) execution with the new prompt** so the DB gets decisive BUY/SELL rows and the dashboard/outcomes have fresh data to show. (Dry-run already validated; `--dry-run` writes nothing.)
 - [ ] **Push the branch / open a PR** if the user wants it on a remote (none currently configured).
 - [ ] **Constrain the action set per phase (prompt adherence).** Holdings occasionally come back `WATCH`, which under the rubric should be HOLD/SELL only; watchlist names should be BUY/WATCH/AVOID only. Either tighten the prompt wording or post-process `action` against `phase`. Low-risk, improves interpretability.
-- [ ] **Fix workflow schedule.** [.github/workflows/run_recommendations.yml:5](.github/workflows/run_recommendations.yml#L5) — cron is `0 11 * * 1-5` (once/day) but SPEC says 2x/day; comment claims "13:00 UTC" but cron is 11:00 UTC. Either match the comment or commit to the 2x/day schedule.
+- [x] **Fix workflow schedule** — done 2026-06-11. Now two cron lines `0 11 * * 1-5` and `0 17 * * 1-5` (11:00 & 17:00 UTC, Mon–Fri) with accurate comments, matching the SPEC 2×/day. (Times assumed UTC, as GitHub Actions cron always is — confirm if local was intended.)
 
 ### Medium priority
 
 - [ ] **Wire `fetch_ticker_news` into the per-ticker prompt.** [src/collectors/prices.py:43](src/collectors/prices.py#L43) is defined but never called. Including ticker-specific news in `analyze_ticker` is the highest-quality improvement available.
-- [ ] **Replace `datetime.utcnow()`** throughout [src/persistence/writers.py](src/persistence/writers.py) and [src/collectors/reddit.py](src/collectors/reddit.py). Deprecated on 3.12+; user runs 3.14 locally. Switch to `datetime.now(timezone.utc).replace(tzinfo=None)`.
+- [x] **Replace `datetime.utcnow()`** — done 2026-06-11. Added a `_utcnow()` helper in [src/persistence/writers.py](src/persistence/writers.py) (`datetime.now(timezone.utc).replace(tzinfo=None)`) and swapped all 4 call sites; verified no `DeprecationWarning` under Python 3.14. `reddit.py` was already migrated (stale TODO entry).
 - [ ] **Add minimal tests** (started — [tests/test_outcomes.py](tests/test_outcomes.py) covers `grade()`; note `pytest` is not yet in requirements.txt):
   - `extract_ticker_mentions` with stopword cases (e.g., posts mentioning `IT`, `GO`, `BE`).
   - `_compute_rsi`, `_pct_change` against fixtures.

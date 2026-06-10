@@ -66,8 +66,8 @@ Total Claude calls per run: `2 + N` where N = number of active tickers.
 ## Infrastructure
 
 - **Runtime**: Python 3.11 (CI) / 3.14 (local).
-- **CI**: [.github/workflows/run_recommendations.yml](.github/workflows/run_recommendations.yml) — cron + `workflow_dispatch`.
-- **Secrets** (GitHub Actions): `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`, `ANTHROPIC_API_KEY`.
+- **CI**: [.github/workflows/run_recommendations.yml](.github/workflows/run_recommendations.yml) — cron (2×/day, 11:00 & 17:00 UTC, Mon–Fri) + `workflow_dispatch`.
+- **Secrets** (GitHub Actions): `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`, `ANTHROPIC_API_KEY`, `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`.
 - **Dashboards** (datasource uid `cfadv004ogglcf`, MySQL):
   - [grafana/recommendations_dashboard.json](grafana/recommendations_dashboard.json) — the original overview (schema-v2 export).
   - [grafana/daily_digest_dashboard.json](grafana/daily_digest_dashboard.json) — daily digest (same Grafana schema-v2 `elements`/`layout` format as the other dashboard). "Selected day" = the latest day inside the time-range picker, so narrowing the picker to one day shows that day's full summary, recommendations, macro signals, and top Reddit posts. Also carries an **Action History by Ticker** graph (action encoded SELL −2 … BUY +2, mirroring the confidence graph in the other dashboard), the action-history table, the outcomes table, and a hit-rate-by-action table. `phase` (HOLDING/WATCHLIST — do you own it) and `action` (the recommendation) are kept as distinct columns on purpose: they only looked redundant under the old always-HOLD/WATCH prompt and now diverge (e.g. HOLDING+SELL). Import via Dashboards → New → Import.
