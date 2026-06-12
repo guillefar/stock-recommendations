@@ -6,15 +6,31 @@ Living document. Update as work progresses. See [PROJECT_SUMMARY.md](PROJECT_SUM
 
 ## Current state
 
-Pipeline is wired end-to-end and all modules exist. As of 2026-06-12 everything through session 02 is **merged to `main`** (`2197dc1`): decisive-recommendation prompt, outcome tracking, PRAW Reddit collector, daily-digest dashboard, 2×/day cron, `datetime.utcnow()` cleanup. Session 04 implemented all code items of **Wave 1** on branch `fix/wave-1-correctness` (see Done below). The pipeline has **not** yet had a real (non-dry-run) execution with the new prompt, so the DB still holds only old all-HOLD/WATCH recommendations.
+Pipeline is wired end-to-end, **Wave 1 is merged to `main`** (`ca4937a`, pushed 2026-06-12), and the system has had its **first real (non-dry-run) execution** (session 05, 2026-06-12): 63/63 tickers ok, first decisive calls stored (34 WATCH / 27 HOLD / **2 SELL**), daily summary written, and `evaluate_outcomes` **backfilled 693 outcome rows at the 7d horizon** (of 945 matured candidates; 0 at 30d). The 4h per-run dedup was verified with a second same-day run (63/63 "Skipping duplicate", today-count unchanged). Sessions now run in their **own git worktree** (decision, see log).
 
-**Known data caveat:** the sibling `price_snapshots` table is stale — last row is 2026-05-22, while recommendations run through today. **Correction (session 04):** old recommendations *did* mature against the existing snapshots — a `--dry-run` of the evaluator grades **693 candidates at the 7d horizon** (0 at 30d). The first scheduled run of `evaluate_outcomes` will therefore backfill ~693 outcome rows, all under the old always-HOLD/WATCH prompt. New recommendations still can't be graded until the `stock-snapshots` collector resumes (not fixable from this repo, read-only).
+**Known data caveats:**
+- The sibling `price_snapshots` table is stale (last row 2026-05-22), so **new** recommendations can't be graded until **S1 (in-repo `price_checks` fallback, adopted)** lands. The 693 backfilled outcomes all come from the old always-HOLD/WATCH prompt era.
+- **Grading semantics skew the backfill**: verdicts are 326 INCORRECT / 113 CORRECT / 254 NEUTRAL, dominated by WATCH-graded-as-bullish in a falling market. The semantics decision is pulled forward to session 06 (decision, see log).
+- The daily summary is a per-day upsert, so the 17:00 run overwrites the 11:00 one; the two session-05 runs minutes apart flipped BEARISH→MIXED (model variance on near-identical input). See the per-run-summary suggestion in HANDOFF_05.
 
 **Reddit is dark:** the PRAW collector is committed but has no credentials yet, so every recommendation currently runs with zero Reddit sentiment (technicals + macro only).
 
 ## In progress
 
 - _(none)_
+
+## Done (session 05 — 2026-06-12, first real execution + roadmap decisions)
+
+On branch **`chore/session-05-first-real-run`** (off `main` @ `ca4937a`), in its own worktree:
+
+- **Wave 1 merged to `main`** — `fix/wave-1-correctness` fast-forwarded to `ca4937a` and pushed (user completed the push directly).
+- **First real (non-dry-run) `src.main` run.** 63 tickers ok / 0 failed, exit 0. Stored actions: 34 WATCH / 27 HOLD / **2 SELL** (first non-WATCH/HOLD rows ever). Daily summary upserted (BEARISH). Only warning: Reddit credentials missing (expected).
+- **First real `evaluate_outcomes` run.** **693 outcomes written at 7d** (of 945 matured candidates), 0 at 30d — exactly the predicted backfill. Verdicts: 326 INCORRECT / 113 CORRECT / 254 NEUTRAL (skewed by WATCH-graded-as-bullish; semantics decision pulled to session 06).
+- **DB sanity checks passed** (HANDOFF_04 queries): 63 recommendation rows today, 693 outcome rows, today's summary row present.
+- **4h dedup verified.** A second `src.main` run logged `Skipping duplicate recommendation` for all 63 tickers; today-count unchanged at 63. Side observation: the run re-upserted the daily summary, flipping BEARISH→MIXED minutes apart (model variance).
+- **Roadmap decisions** (S1–S6 + dashboard ideas) recorded in the decisions log; roadmap below restructured accordingly.
+- **Reddit still dark** — `.env` has none of the three `REDDIT_*` vars; user task remains open.
+- Wave 2 item 1 (ticker news) deliberately **not** started — user chose to close the session after the roadmap discussion.
 
 ## Done (session 04 — 2026-06-12, Wave 1)
 
@@ -68,8 +84,14 @@ Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**;
 - [x] **Per-ticker error isolation** — done session 04: try/except per ticker in [src/main.py](src/main.py), ok/failed counts in the final log line, exit non-zero only if all failed.
 - [x] **Schedule `evaluate_outcomes`** — done session 04: second workflow step. Note it will backfill ~693 7d outcomes from old recs on first real run (snapshots through 2026-05-22 matured them).
 - [ ] **USER: Provide Reddit credentials.** Create a "script" app at https://www.reddit.com/prefs/apps; put `REDDIT_CLIENT_ID/SECRET/USER_AGENT` in local `.env` AND GitHub Actions secrets. Until then every run has zero Reddit sentiment.
-- [ ] **First real (non-dry-run) execution** with the decisive prompt (manual `workflow_dispatch` or local), so the DB finally gets BUY/SELL rows.
+- [x] **First real (non-dry-run) execution** — done session 05 (local): 63/63 ok, 2 SELL rows stored, 693 outcomes backfilled, dedup verified with a second run.
 - [x] **Merge `chore/cron-2x-daily-and-datetime-cleanup` to `main`** — done 2026-06-12 (fast-forward to `2197dc1`, pushed).
+
+### Wave 1.5 — Outcome integrity & freshness (adopted session 05; next session)
+
+- [ ] **Decide grading semantics with the user, then implement.** Today WATCH grades as bullish and HOLD can never be INCORRECT — the 693-row backfill came out 326 INCORRECT / 113 CORRECT / 254 NEUTRAL largely by semantics. Options to put to the user: exclude WATCH from hit-rate or grade it on |move|; make HOLD INCORRECT beyond a band (e.g. ±10%). Record in decisions log, update `grade()` in [src/evaluate_outcomes.py](src/evaluate_outcomes.py) + [tests/test_outcomes.py](tests/test_outcomes.py), then **re-grade**: delete + regenerate the backfilled rows (they are fully re-derivable).
+- [ ] **S1 — in-repo price-snapshot fallback.** Migration 003: `price_checks(ticker_id, as_of_date, price)` owned by this repo; write one row per ticker per run (price already fetched in `technical`); `evaluate_outcomes` falls back to it when `price_snapshots` has no row in the horizon window. Unblocks grading of all post-2026-05-22 recommendations.
+- [ ] **D1+D2 digest panels** (if time): per-day morning-vs-afternoon disagreement table + daily action-mix stacked bars. Schema-v2 `elements`/`layout` format only; validate queries against the live DB.
 
 ### Wave 2 — Signal quality
 
@@ -92,7 +114,8 @@ Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**;
 - [ ] **Action-flip detection.** When a ticker's new action differs from its previous one (HOLD→SELL, WATCH→BUY…), include the flips in the daily-summary prompt input and add a "recent flips" panel/table to the digest dashboard. (This is the no-notifications substitute.)
 - [ ] **Persist trending-unknown tickers.** Today `find_trending_unknown` results only hit logs/summary text. New table (migration 003) so "should I watchlist this?" signals survive and can trend over time.
 - [ ] **Batched Reddit-mention sentiment.** One extra Haiku call per run to classify that run's mentions; fills the always-NULL `reddit_mentions.sentiment` ([src/persistence/writers.py:65](src/persistence/writers.py#L65)). **Gated on Reddit creds existing.**
-- [ ] **Confidence-calibration panel.** Hit-rate bucketed by confidence band (0.4–0.59 / 0.6–0.79 / 0.8+) on the digest dashboard. **Gated on `recommendation_outcomes` having data** (needs `price_snapshots` to resume + recs to mature).
+- [ ] **Confidence-calibration panel (D3, adopted session 05).** Hit-rate bucketed by confidence band (0.4–0.59 / 0.6–0.79 / 0.8+) on the digest dashboard. ~~Gated on outcomes data~~ **ungated** by the 693-row backfill; **sequence after the Wave 1.5 grading-semantics fix** or the numbers mislead.
+- [ ] **S5 — weekly retrospective digest (adopted session 05).** On Friday's 17:00 run, one extra Claude call writes a week-in-review in Spanish (calls vs outcomes, action flips, sector exposure); persist it and add a digest panel. ~1 Haiku call/week.
 
 ### Fold-in cleanups (no scheduled wave — grab when touching the area)
 
@@ -103,6 +126,9 @@ Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**;
 
 ## Decisions log
 
+- _2026-06-12 (session 05)_ — **Roadmap picks from S1–S6 + dashboard ideas**: adopted **S1** (in-repo `price_checks` fallback), **S5** (weekly retrospective), **D1+D2** (morning-vs-afternoon divergence + action-mix-over-time digest panels), **D3** (confidence-calibration panel, sequenced after the grading-semantics fix). **S6 (event-driven runs) deferred**; S2/S3/S4 not adopted for now (revisit once outcomes are fresh).
+- _2026-06-12 (session 05)_ — **Grading-semantics decision pulled forward** from Wave 3 to the next session (Wave 1.5): the 693-row backfill is visibly skewed (326 INCORRECT) by WATCH-graded-as-bullish, and outcome-based panels shouldn't be built on top of it.
+- _2026-06-12 (session 05)_ — **Each session works in its own git worktree** (not just a branch), per user instruction. Worktrees live under `.claude/worktrees/`; symlink `.env` and `.venv` from the main checkout into the worktree.
 - _2026-06-12_ — **Two recommendations per day**: with the 2×/day cron, each run writes its own row per ticker (per-run dedup window, not per-calendar-day). Morning/afternoon divergence becomes visible data.
 - _2026-06-12_ — **No push notifications for now** (Telegram/email declined). Action flips surface via the daily summary and a dashboard panel instead (Wave 4).
 - _2026-06-12_ — **Roadmap scope**: Waves 1–4 committed; old low-priority cleanups are fold-in work, not a scheduled wave.
