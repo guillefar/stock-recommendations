@@ -2,8 +2,12 @@ name: Stock Recommendations
 
 on:
   schedule:
-    - cron: '0 14 * * 1-5'   # 11:00 ART (UTC-3), lun-vie
-    - cron: '0 20 * * 1-5'   # 17:00 ART (UTC-3), lun-vie
+    # Once per weekday at 12:00 CEST (UTC+2 summer time → 10:00 UTC).
+    # GitHub cron is always UTC and does not observe DST, so during CET
+    # (winter, UTC+1) this fires at 11:00 local. Single daily run by decision
+    # (session 08): the second (20:00 UTC) batch never materialized and the
+    # two-runs/day data (D1 intra-day divergence) was not worth the duplication.
+    - cron: '0 10 * * 1-5'   # 12:00 CEST (Madrid/Berlin), lun-vie
   workflow_dispatch:          # permite ejecución manual
 
 jobs:

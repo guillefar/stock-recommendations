@@ -3,6 +3,7 @@ import logging
 
 import anthropic
 
+from src.analysis.actions import allowed_actions, coerce_action
 from src.config import Config
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ Para cada tema usa exactamente este schema:
         response = self._client.messages.create(
             model=MODEL,
             max_tokens=2048,
-            system=[{"type": "text", "text": _MACRO_SYSTEM, "cache_control": {"type": "ephemeral"}}],
+            system=_MACRO_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
         )
         return _parse_json(response.content[0].text, default=[])
@@ -62,6 +63,12 @@ Para cada tema usa exactamente este schema:
     def analyze_ticker(self, ticker_data: dict, macro_signals: list[dict]) -> dict | None:
         tech = ticker_data.get("technical", {})
         sent = ticker_data.get("sentiment", {})
+
+        # The action set is constrained by the position phase (HOLDING -> HOLD/SELL,
+        # WATCHLIST -> BUY/WATCH/AVOID). Both the prompt wording and the structured
+        # output schema below reflect this allowed set for the ticker.
+        phase = ticker_data.get("phase") or "WATCHLIST"
+        allowed = allowed_actions(phase)
 
         relevant_macro = [
             s for s in macro_signals
@@ -130,10 +137,11 @@ Calibración de confidence (0.0–1.0):
 - 0.40–0.59: señales mixtas o débiles.
 - 0.00–0.39: poca evidencia / dominado por ruido.
 
-Toma la acción decisiva (BUY/SELL) cuando la evidencia la respalde; no la evites por
-prudencia. Responde SOLO con este JSON (sin texto adicional):
+Toma la decisión más decisiva que la evidencia respalde; no te refugies en la
+opción neutral por prudencia. Para esta posición ({phase}) la acción DEBE ser
+una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
 {{
-  "action": "BUY|SELL|HOLD|WATCH|AVOID",
+  "action": "{"|".join(allowed)}",
   "confidence": 0.0,
   "reasoning": "2-4 frases máximo, citando las señales concretas que pesaron"
 }}"""
@@ -141,12 +149,35 @@ prudencia. Responde SOLO con este JSON (sin texto adicional):
         response = self._client.messages.create(
             model=MODEL,
             max_tokens=512,
-            system=[{"type": "text", "text": _RECOMMENDATION_SYSTEM, "cache_control": {"type": "ephemeral"}}],
+            system=_RECOMMENDATION_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
+            output_config={
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            # enum pins the action to the phase's allowed set, so
+                            # an out-of-set action is structurally impossible.
+                            "action": {"type": "string", "enum": list(allowed)},
+                            "confidence": {"type": "number"},
+                            "reasoning": {"type": "string"},
+                        },
+                        "required": ["action", "confidence", "reasoning"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
         )
-        # No fallback recommendation: a parse failure must surface as None so the
-        # caller skips persistence instead of storing a fake HOLD.
-        return _parse_json(response.content[0].text, default=None)
+        # Structured output guarantees schema-valid JSON. A refusal or truncation
+        # still surfaces as None so the caller skips persistence (no fake HOLD).
+        result = _structured_json(response, default=None)
+        if result is None:
+            return None
+        # Defensive backstop: the enum already constrains the action, but coerce
+        # (and log) anything out-of-set in case the constraint is ever bypassed.
+        result["action"] = coerce_action(result.get("action", ""), phase)
+        return result
 
     def generate_daily_summary(self, analysis_data: dict) -> dict:
         tickers = analysis_data.get("tickers_analyzed", [])
@@ -186,13 +217,37 @@ Responde SOLO con este JSON (sin texto adicional):
         response = self._client.messages.create(
             model=MODEL,
             max_tokens=1024,
-            system=[{"type": "text", "text": _SUMMARY_SYSTEM, "cache_control": {"type": "ephemeral"}}],
+            system=_SUMMARY_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
         )
         return _parse_json(
             response.content[0].text,
             default={"summary": "Error generando resumen.", "hot_tickers": [], "overall_sentiment": "NEUTRAL"},
         )
+
+
+def _structured_json(response, default):
+    """Parse a response produced with ``output_config.format`` (json_schema).
+
+    The format constraint guarantees the first text block is schema-valid JSON,
+    so no ```-fence stripping is needed. Stays defensive anyway: a refusal,
+    truncation (``max_tokens``), or empty content returns ``default``.
+    """
+    if getattr(response, "stop_reason", None) == "refusal":
+        logger.error("Claude refused the structured request (stop_reason=refusal)")
+        return default
+    text = next(
+        (b.text for b in response.content if getattr(b, "type", None) == "text"),
+        None,
+    )
+    if not text:
+        logger.error("Structured response had no text block")
+        return default
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse structured JSON from Claude: {e}\nText: {text[:300]}")
+        return default
 
 
 def _parse_json(text: str, default):
