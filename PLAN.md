@@ -2,11 +2,11 @@
 
 Living document. Update as work progresses. See [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md) for the static overview and [SPEC.md](SPEC.md) for design rationale.
 
-**Last updated:** 2026-06-11
+**Last updated:** 2026-06-12
 
 ## Current state
 
-Pipeline is wired end-to-end and all modules exist. As of 2026-06-11 a feature branch **`feat/decisive-recommendations-and-digest`** (commit `35560d9`, **not yet pushed/merged**) carries: the decisive-recommendation prompt fix, outcome tracking, the PRAW Reddit swap, and the new daily-digest dashboard. The prompt fix was validated via a local `--dry-run` (produced real SELLs). The pipeline has **not** yet had a real (non-dry-run) execution with the new prompt, so the DB still holds only old all-HOLD/WATCH recommendations.
+Pipeline is wired end-to-end and all modules exist. As of 2026-06-12 everything through session 02 is **merged to `main`** (`2197dc1`): decisive-recommendation prompt, outcome tracking, PRAW Reddit collector, daily-digest dashboard, 2×/day cron, `datetime.utcnow()` cleanup. The pipeline has **not** yet had a real (non-dry-run) execution with the new prompt, so the DB still holds only old all-HOLD/WATCH recommendations.
 
 **Known data caveat:** the sibling `price_snapshots` table is stale — last row is 2026-05-22, while recommendations run through today. Outcome grading therefore finds zero matured candidates until the `stock-snapshots` collector resumes. Not fixable from this repo (read-only).
 
@@ -15,6 +15,12 @@ Pipeline is wired end-to-end and all modules exist. As of 2026-06-11 a feature b
 ## In progress
 
 - _(none)_
+
+## Done (session 03 — 2026-06-12)
+
+- **Deep repo review + agreed roadmap.** Findings folded into the wave plan above; headline new issues found: the 2×/day-vs-daily-dedup no-op bug, parse-failure fallbacks persisted as real recommendations, no error isolation per ticker, `evaluate_outcomes` never scheduled, `cache_control` likely a no-op on tiny system prompts.
+- **Merged `chore/cron-2x-daily-and-datetime-cleanup` → `main`** (fast-forward to `2197dc1`) and pushed.
+- **Rewrote the TODO section as the wave roadmap** (this file) after user confirmation of scope and the two-recs/day + no-notifications decisions. Session handoff: [HANDOFF_03.md](HANDOFF_03.md).
 
 ## Done (session 02 — 2026-06-11)
 
@@ -40,39 +46,55 @@ On branch **`chore/cron-2x-daily-and-datetime-cleanup`** (off `main` @ `370810e`
 - **Fix B — restored real Reddit post scores.** Switched [src/collectors/reddit.py](src/collectors/reddit.py) from the RSS endpoint (which doesn't expose `score` or `upvote_ratio`) to Reddit's public `.json` endpoint. Now applies the SPEC filter (`score >= 50` and `upvote_ratio >= 0.7`). This re-enables `find_trending_unknown`, fixes `sentiment.avg_score`, and makes the daily-summary `top_posts` sort meaningful.
 - Created [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md), this file ([PLAN.md](PLAN.md)), and [HANDOFF.md](HANDOFF.md) for cross-session context.
 
-## TODO — prioritized
+## Roadmap — waves (agreed 2026-06-12)
 
-### High priority
+Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**; the old low-priority cleanups are **not** a scheduled wave — fold them in opportunistically when touching the same code (see "Fold-in cleanups"). Each wave ≈ one session. Decisions baked in: **two recommendations/day** (per-run dedup, not per-day), **no push notifications for now** (flips surface in the summary + dashboard instead).
 
-- [ ] **Provide Reddit credentials.** The collector was switched to PRAW (done — see below) but is inert until `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` exist. Create a "script" app at https://www.reddit.com/prefs/apps, then add the values to local `.env` AND as GitHub Actions secrets (`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`). Until then every recommendation runs with zero Reddit sentiment.
-- [ ] **Do a real (non-dry-run) execution with the new prompt** so the DB gets decisive BUY/SELL rows and the dashboard/outcomes have fresh data to show. (Dry-run already validated; `--dry-run` writes nothing.)
-- [ ] **Push the branch / open a PR** if the user wants it on a remote (none currently configured).
-- [ ] **Constrain the action set per phase (prompt adherence).** Holdings occasionally come back `WATCH`, which under the rubric should be HOLD/SELL only; watchlist names should be BUY/WATCH/AVOID only. Either tighten the prompt wording or post-process `action` against `phase`. Low-risk, improves interpretability.
-- [x] **Fix workflow schedule** — done 2026-06-11. Two cron lines `0 14 * * 1-5` and `0 20 * * 1-5` = **11:00 & 17:00 ART (UTC-3)**, Mon–Fri, matching the SPEC 2×/day. (User confirmed cron times are always specified in local Argentina time; GitHub Actions cron is UTC so the offset is baked in.)
+### Wave 1 — Correctness & unblocking
 
-### Medium priority
+- [ ] **Per-run recommendations (fixes the 2×/day no-op bug).** [src/persistence/writers.py:98-109](src/persistence/writers.py#L98-L109) skips any ticker that already has a row that calendar day, so the 17:00 ART run pays all Claude calls and writes nothing. Replace the per-day guard with a per-run one (skip only if a row for the ticker exists within the last ~4h — protects same-slot retries, allows the second daily row). Note: the old "UNIQUE on DATE(generated_at)" idempotency idea is **obsolete** under two-rows/day; if hardening is wanted, key on (ticker_id, date, AM/PM slot).
+- [ ] **Never persist parse-failure fallbacks.** [src/analysis/claude_client.py:132-135](src/analysis/claude_client.py#L132-L135) returns `HOLD/0.5/"Error al parsear respuesta"` on bad JSON and main writes it as a real recommendation (and outcomes later grade it). Make the failure explicit (return None / raise), skip the DB write, log loudly, and count failures in the run-complete log line.
+- [ ] **Per-ticker error isolation.** Wrap the per-ticker body in [src/main.py](src/main.py) (technicals + Claude call + writes) in try/except → log + continue, so one bad ticker or one API error can't abort the whole unattended run. Exit non-zero if *all* tickers failed.
+- [ ] **Schedule `evaluate_outcomes`.** It currently only runs manually. Add it as a step after `python -m src.main` in [.github/workflows/run_recommendations.yml](.github/workflows/run_recommendations.yml) (idempotent, grades 0 rows until `price_snapshots` resumes — harmless).
+- [ ] **USER: Provide Reddit credentials.** Create a "script" app at https://www.reddit.com/prefs/apps; put `REDDIT_CLIENT_ID/SECRET/USER_AGENT` in local `.env` AND GitHub Actions secrets. Until then every run has zero Reddit sentiment.
+- [ ] **First real (non-dry-run) execution** with the decisive prompt (manual `workflow_dispatch` or local), so the DB finally gets BUY/SELL rows.
+- [x] **Merge `chore/cron-2x-daily-and-datetime-cleanup` to `main`** — done 2026-06-12 (fast-forward to `2197dc1`, pushed).
 
-- [ ] **Wire `fetch_ticker_news` into the per-ticker prompt.** [src/collectors/prices.py:43](src/collectors/prices.py#L43) is defined but never called. Including ticker-specific news in `analyze_ticker` is the highest-quality improvement available.
-- [x] **Replace `datetime.utcnow()`** — done 2026-06-11. Added a `_utcnow()` helper in [src/persistence/writers.py](src/persistence/writers.py) (`datetime.now(timezone.utc).replace(tzinfo=None)`) and swapped all 4 call sites; verified no `DeprecationWarning` under Python 3.14. `reddit.py` was already migrated (stale TODO entry).
-- [ ] **Add minimal tests** (started — [tests/test_outcomes.py](tests/test_outcomes.py) covers `grade()`; note `pytest` is not yet in requirements.txt):
-  - `extract_ticker_mentions` with stopword cases (e.g., posts mentioning `IT`, `GO`, `BE`).
-  - `_compute_rsi`, `_pct_change` against fixtures.
-  - `_parse_json` against markdown-fence and leading-text variants.
-- [ ] **Idempotency hardening for `recommendations`.** [src/persistence/writers.py:76](src/persistence/writers.py#L76) does SELECT-then-INSERT; races under concurrent runs. Add a generated column on `DATE(generated_at)` plus UNIQUE `(ticker_id, that_date)`, then switch to `INSERT IGNORE`.
-- [ ] **Pin `requirements.txt`.** yfinance breaks compat often — there's already a workaround for a varying news schema in [src/collectors/prices.py:50](src/collectors/prices.py#L50).
-- [ ] **Cost telemetry.** Log `response.usage` totals (input/output/cache-read) at the end of each run. Validates whether `cache_control: ephemeral` on system prompts actually helps across the N ticker calls.
+### Wave 2 — Signal quality
 
-### Low priority
+- [ ] **Wire `fetch_ticker_news` into the per-ticker prompt.** [src/collectors/prices.py:43](src/collectors/prices.py#L43) exists but is never called. Pass top ~5 headlines into `analyze_ticker`. Highest-quality single improvement available.
+- [ ] **Earnings awareness.** Fetch the next earnings date via yfinance and add "Próximo earnings: ..." to the ticker prompt — imminent earnings should temper/inform the call.
+- [ ] **Constrain action set per phase.** HOLDING → {HOLD, SELL}; WATCHLIST → {BUY, WATCH, AVOID}. Tighten the prompt wording AND post-validate: coerce out-of-set actions to the nearest valid one and log the coercion.
+- [ ] **Structured JSON output instead of text parsing.** Replace `_parse_json` string-stripping with the API's structured/tool-use output so malformed JSON becomes impossible. **Read the `/claude-api` skill at implementation time** for the current recommended mechanism; also sanity-check whether the tiny system prompts even reach the cacheable minimum (likely not → drop or restructure `cache_control`).
+- [ ] **Validate via `--dry-run`** before merging (prompts changed).
 
-- [ ] One DB connection per run instead of `2 + 2N` opens. Reorganize the conn open/close pairs in [src/main.py](src/main.py).
-- [ ] Refactor [src/db.py:20](src/db.py#L20) `get_active_tickers` from LEFT JOIN + OR-in-WHERE to a UNION of two INNER JOINs.
-- [ ] Macro→ticker matching ([src/main.py:102-106](src/main.py#L102-L106)) is "first sector match wins"; prefer signals where `direction[sector]` is non-NEUTRAL.
-- [ ] Per-post sentiment for `reddit_mentions` — column is currently hardcoded NULL in [src/persistence/writers.py:60](src/persistence/writers.py#L60). One batched Haiku call per run could populate it, or drop the column.
-- [ ] Repo-root `README.md` pointing newcomers at SPEC.md / PROJECT_SUMMARY.md / PLAN.md.
-- [ ] Document the Grafana dashboard: how to import, expected datasource UID, what each panel shows.
+### Wave 3 — Observability & hygiene
+
+- [ ] **Cost telemetry.** Accumulate `response.usage` (input/output/cache-read tokens) across the `2+N` calls; log totals + estimated USD at run end. Use it to confirm the caching decision from Wave 2.
+- [ ] **Tests + CI.** Add `pytest` to requirements (or a dev-requirements file) and a test step/workflow. Cover: `extract_ticker_mentions` stopwords (`IT`, `GO`, `BE`), `_compute_rsi`/`_pct_change` fixtures, action-per-phase coercion (Wave 2), per-run dedup window (Wave 1). [tests/test_outcomes.py](tests/test_outcomes.py) already covers `grade()`.
+- [ ] **Pin `requirements.txt`.** yfinance breaks compat often — there's already a schema workaround at [src/collectors/prices.py:50](src/collectors/prices.py#L50).
+- [ ] **README.md** at repo root pointing at SPEC / PROJECT_SUMMARY / PLAN / HANDOFFs, plus Grafana import notes (datasource uid, time-range-picker navigation).
+- [ ] **Decide outcome-grading semantics.** Today `WATCH` is graded as bullish and `HOLD` can never be INCORRECT — both inflate hit-rates. Decide (e.g., exclude WATCH from hit-rate, or grade it on |move|; make HOLD INCORRECT beyond some band) and record in the decisions log.
+
+### Wave 4 — Product features (no notifications; some items gated)
+
+- [ ] **Action-flip detection.** When a ticker's new action differs from its previous one (HOLD→SELL, WATCH→BUY…), include the flips in the daily-summary prompt input and add a "recent flips" panel/table to the digest dashboard. (This is the no-notifications substitute.)
+- [ ] **Persist trending-unknown tickers.** Today `find_trending_unknown` results only hit logs/summary text. New table (migration 003) so "should I watchlist this?" signals survive and can trend over time.
+- [ ] **Batched Reddit-mention sentiment.** One extra Haiku call per run to classify that run's mentions; fills the always-NULL `reddit_mentions.sentiment` ([src/persistence/writers.py:65](src/persistence/writers.py#L65)). **Gated on Reddit creds existing.**
+- [ ] **Confidence-calibration panel.** Hit-rate bucketed by confidence band (0.4–0.59 / 0.6–0.79 / 0.8+) on the digest dashboard. **Gated on `recommendation_outcomes` having data** (needs `price_snapshots` to resume + recs to mature).
+
+### Fold-in cleanups (no scheduled wave — grab when touching the area)
+
+- [ ] One DB connection per run instead of `2 + 2N` opens ([src/main.py](src/main.py)) — natural fit during Wave 1's main-loop edit.
+- [ ] Refactor [src/db.py:20](src/db.py#L20) `get_active_tickers` to a UNION of two INNER JOINs.
+- [ ] Macro→ticker matching ([src/main.py:102-106](src/main.py#L102-L106)): prefer signals where `direction[sector]` is non-NEUTRAL over "first sector match wins".
+- [x] ~~UNIQUE-key idempotency on DATE(generated_at)~~ — superseded by the two-recs/day decision (see Wave 1).
 
 ## Decisions log
 
+- _2026-06-12_ — **Two recommendations per day**: with the 2×/day cron, each run writes its own row per ticker (per-run dedup window, not per-calendar-day). Morning/afternoon divergence becomes visible data.
+- _2026-06-12_ — **No push notifications for now** (Telegram/email declined). Action flips surface via the daily summary and a dashboard panel instead (Wave 4).
+- _2026-06-12_ — **Roadmap scope**: Waves 1–4 committed; old low-priority cleanups are fold-in work, not a scheduled wave.
 - _2026-06-11_ — Built the digest in Grafana **schema-v2** (`elements`/`layout`) after a classic-schema version failed import on the user's Grafana 13.1.x. Date navigation uses the **time-range picker** (not a template-variable dropdown) because the v2 variable schema was unreliable to hand-author.
 - _2026-06-11_ — Reverted the 2026-06-06 `.json` decision: confirmed 403 from a residential IP too, so switched the Reddit collector to **authenticated PRAW**. Needs `REDDIT_CLIENT_ID`/`SECRET`/`USER_AGENT`.
 - _2026-06-06_ — Chose Reddit `.json` over restoring PRAW for fix B. No auth needed, no new secrets, no new dependency. Risk: may be blocked from GH Actions IPs. PRAW remains the documented fallback. _(superseded 2026-06-11)_
