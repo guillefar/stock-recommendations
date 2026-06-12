@@ -79,6 +79,21 @@ Para cada tema usa exactamente este schema:
             if top_posts else "  Sin posts relevantes."
         )
 
+        # Optional blocks: omitted entirely when there's nothing to show, so
+        # tickers without news/earnings (e.g. ETFs) keep the original prompt.
+        news_titles = [n["title"] for n in (ticker_data.get("news") or []) if n.get("title")]
+        news_block = (
+            "\nNoticias recientes del ticker:\n"
+            + "\n".join(f"- {t}" for t in news_titles[:5])
+            + "\n"
+        ) if news_titles else ""
+
+        next_earnings = ticker_data.get("next_earnings")
+        earnings_block = (
+            f"\nPróximo reporte de earnings: {next_earnings} — si es inminente, "
+            "considera el riesgo del evento en la acción y el confidence.\n"
+        ) if next_earnings else ""
+
         user_msg = f"""Ticker: {ticker_data['symbol']} ({ticker_data.get('name', '')}, sector: {ticker_data.get('sector', 'N/A')})
 Posición actual: {ticker_data.get('phase', 'sin posición')}
 
@@ -95,7 +110,7 @@ Sentimiento Reddit:
 - Score promedio: {sent.get('avg_score', 0):.1f}
 - Posts más relevantes:
 {posts_text}
-
+{news_block}{earnings_block}
 Contexto macro relevante:
 {macro_text}
 

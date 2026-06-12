@@ -1,4 +1,5 @@
 import logging
+from datetime import date, datetime
 
 import pandas as pd
 import yfinance as yf
@@ -60,6 +61,41 @@ def fetch_ticker_news(symbol: str) -> list[dict]:
     except Exception as e:
         logger.error(f"Error fetching news for {symbol}: {e}")
         return []
+
+
+def fetch_next_earnings(symbol: str) -> str | None:
+    """Returns the next earnings date as 'YYYY-MM-DD', or None if unknown.
+
+    yfinance's `calendar` schema varies by version (dict with 'Earnings Date'
+    in recent ones, DataFrame in older ones) and is empty for ETFs, so this
+    degrades to None on anything unexpected.
+    """
+    try:
+        cal = yf.Ticker(symbol).calendar
+        if isinstance(cal, dict):
+            dates = cal.get("Earnings Date") or []
+        elif cal is not None and "Earnings Date" in getattr(cal, "index", []):
+            dates = list(cal.loc["Earnings Date"])
+        else:
+            dates = []
+        return _pick_next_earnings(dates, date.today())
+    except Exception as e:
+        logger.warning(f"Error fetching earnings calendar for {symbol}: {e}")
+        return None
+
+
+def _pick_next_earnings(dates: list, today: date) -> str | None:
+    """Earliest earnings date at/after today, ISO-formatted; None if none."""
+    normalized = []
+    for v in dates:
+        if isinstance(v, datetime):
+            v = v.date()
+        elif hasattr(v, "to_pydatetime"):  # pd.Timestamp
+            v = v.to_pydatetime().date()
+        if isinstance(v, date):
+            normalized.append(v)
+    upcoming = sorted(d for d in normalized if d >= today)
+    return upcoming[0].isoformat() if upcoming else None
 
 
 def _compute_rsi(prices: pd.Series, period: int = 14) -> float | None:

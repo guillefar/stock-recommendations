@@ -6,10 +6,12 @@ Living document. Update as work progresses. See [PROJECT_SUMMARY.md](PROJECT_SUM
 
 ## Current state
 
-Pipeline is wired end-to-end and **Wave 1.5 is complete on branch `feat/session-06-wave-1-5`** (session 06, 2026-06-12; not yet merged). Grading semantics were decided and implemented (WATCH movement-graded, HOLD −10% loss band — see decisions log), and all 693 outcomes were **re-graded: 335 CORRECT / 155 INCORRECT / 203 NEUTRAL** (was 113/326/254). **S1 landed**: migration 003 `price_checks` is applied to the DB, `src.main` upserts one price row per ticker per run, and `evaluate_outcomes` falls back to `price_checks` when `price_snapshots` has no row in the horizon window — today already has **63/63 tickers covered**. D1 (same-day disagreements) + D2 (action mix over time) panels added to the digest dashboard (schema v2). Bonus fix: yfinance returned NaN closes mid-session for 21 European ETFs (so Claude saw `price: None` and those recs stored NULL entry prices); the collector now uses the last *valid* close.
+Pipeline is wired end-to-end. **Wave 1.5 is merged to `main`** (`881038d`, 2026-06-12) and **Wave 2 is half done on branch `feat/session-07-d3-wave-2`** (session 07, 2026-06-12; pushed, not merged): ticker news (top 5 yfinance headlines) and the next earnings date now ride into the per-ticker prompt as optional Spanish blocks (omitted when empty, so ETFs keep the original prompt), and the **D3 confidence-calibration panel** (panel-11: hit-rate by confidence band × action, NEUTRAL excluded from the denominator like panel-7) is on the digest dashboard. D3's query already shows real calibration signal on the 693 backfilled outcomes: WATCH hit-rate climbs **59% → 69% → 80%** across the <0.40 / 0.40–0.59 / 0.60–0.79 bands. Post-merge verification finding: the 2×/day cron schedule only reached `main` ~2026-06-12, so all historical scheduled runs were the single 14:00 UTC cron (63 recs/day, not 126 — **not a bug**); 2026-06-12 is the first day both crons (14:00/20:00 UTC) run the Wave 1.5 code, so cron-driven `price_checks` accumulation starts then. Wave 2 items remaining: constrain action set per phase; structured JSON output.
+
+Previous state (session 06, Wave 1.5): grading semantics were decided and implemented (WATCH movement-graded, HOLD −10% loss band — see decisions log), and all 693 outcomes were **re-graded: 335 CORRECT / 155 INCORRECT / 203 NEUTRAL** (was 113/326/254). **S1 landed**: migration 003 `price_checks` is applied to the DB, `src.main` upserts one price row per ticker per run, and `evaluate_outcomes` falls back to `price_checks` when `price_snapshots` has no row in the horizon window — today already has **63/63 tickers covered**. D1 (same-day disagreements) + D2 (action mix over time) panels added to the digest dashboard (schema v2). Bonus fix: yfinance returned NaN closes mid-session for 21 European ETFs (so Claude saw `price: None` and those recs stored NULL entry prices); the collector now uses the last *valid* close.
 
 **Known data caveats:**
-- `price_snapshots` is still stale (last row 2026-05-22). New recommendations become gradeable ~7 days after `price_checks` rows start accumulating under the **merged** code — the cron runs `main`, so nothing accumulates from the cron until this branch merges. 252 matured candidates currently have no exit price in either table (the gap between 2026-05-22 snapshots and the first price_checks rows); most of the 2026-05-29 → 2026-06-05 era recs will stay ungradeable forever (no exit price exists for their window).
+- `price_snapshots` is still stale (last row 2026-05-22). `price_checks` accumulates from the cron starting 2026-06-12 (Wave 1.5 merge date); new recommendations become gradeable at 7d from ~2026-06-19. 252 matured candidates have no exit price in either table (the gap between 2026-05-22 snapshots and the first price_checks rows); most of the 2026-05-29 → 2026-06-05 era recs will stay ungradeable forever (no exit price exists for their window).
 - Recs from the 21 European ETFs with the NaN-close bug have NULL entry prices (ungradeable) up to 2026-06-12; fixed going forward.
 - The daily summary is a per-day upsert, so the 17:00 run overwrites the 11:00 one; the two session-05 runs minutes apart flipped BEARISH→MIXED (model variance on near-identical input). See the per-run-summary suggestion S8 in HANDOFF_05.
 
@@ -17,7 +19,19 @@ Pipeline is wired end-to-end and **Wave 1.5 is complete on branch `feat/session-
 
 ## In progress
 
-- _(none — Wave 1.5 awaiting merge of `feat/session-06-wave-1-5`)_
+- **Wave 2 (signal quality)** — items 1–2 (ticker news, earnings awareness) done on `feat/session-07-d3-wave-2`, awaiting merge; items 3–4 (action-set-per-phase constraint, structured JSON output) remain for a next session.
+
+## Done (session 07 — 2026-06-12, D3 + Wave 2 first half)
+
+On branch **`feat/session-07-d3-wave-2`** (off `main` @ `881038d`), in worktree `.claude/worktrees/session-07-d3-wave-2`:
+
+- **Post-merge verification.** `price_checks`: 63 rows for 2026-06-12 only (session 06's local run; the cron hadn't fired since the merge at check time). `recommendation_outcomes`: 693, unchanged as expected. Anomaly chased and resolved: recs are 63/day not 126/day because the 2×/day schedule (`0 14` + `0 20` UTC, i.e. 11:00/17:00 ART) only reached `main` ~2026-06-12 — GH run history shows exactly one scheduled run/day, all ~13:30–16:30 UTC (the 14:00 cron plus GitHub's delay), every one successful. Nothing broken; the 20:00 cron starts firing 2026-06-12.
+- **D3 — confidence-calibration panel** added to [grafana/daily_digest_dashboard.json](grafana/daily_digest_dashboard.json) as panel-11 ("Hit Rate by Confidence Band (D3)", schema v2, GridLayoutItem at y=72): bands <0.40 / 0.40–0.59 / 0.60–0.79 / 0.80+ (a 4th band was added below the HANDOFF_06 draft because real confidences go down to 0.25), columns total/correct/incorrect/neutral + hit-rate-%, hit-rate defined as correct/decided (NEUTRAL excluded) to match panel-7, action color-mapped, hit-rate color-background (red <40 / yellow 40–60 / green ≥60). Query validated against the live DB before insertion; diff was purely additive (203 lines).
+- **Wave 2 item 1 — ticker news in the prompt.** [src/main.py](src/main.py) fetches `fetch_ticker_news(symbol)[:5]` per ticker and passes it in `ticker_data["news"]`; `analyze_ticker` in [src/analysis/claude_client.py](src/analysis/claude_client.py) renders a "Noticias recientes del ticker:" block (titles only), omitted entirely when no titles.
+- **Wave 2 item 2 — earnings awareness.** New `fetch_next_earnings` in [src/collectors/prices.py](src/collectors/prices.py) (yfinance `Ticker.calendar`, handles dict + DataFrame schemas, try/except → None; pure date-picking logic in `_pick_next_earnings`); prompt gets "Próximo reporte de earnings: YYYY-MM-DD — si es inminente, considera el riesgo del evento…" when known. ETFs have no calendar → yfinance logs a (harmless, cosmetic) internal 404 ERROR line and the block is omitted.
+- **Tests:** new [tests/test_prices.py](tests/test_prices.py) covering `_pick_next_earnings` (5 tests: earliest-future pick, today counts, stale/empty → None, datetime+Timestamp normalization, garbage tolerated).
+- **Validated:** pytest **9/9**; full `src.main --dry-run` **63 ok / 0 failed**, no writes; live smoke test (AAPL: 5 headlines + earnings 2026-07-30; XESC.DE: no calendar → None); prompt assembly verified with a stubbed API client — blocks present with data, absent without (`Noticias`/`earnings` strings absent from the no-data prompt).
+- **Reddit still dark** — `.env` has none of the three `REDDIT_*` vars (checked this session); user task remains open.
 
 ## Done (session 06 — 2026-06-12, Wave 1.5)
 
@@ -104,15 +118,15 @@ Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**;
 - [x] **Decide grading semantics with the user, then implement** — done session 06: WATCH movement-graded, HOLD −10% band (decisions log); `grade()` + tests updated; backfill re-graded 335 C / 155 I / 203 N.
 - [x] **S1 — in-repo price-snapshot fallback** — done session 06: migration 003 applied, per-run upserts in main, evaluator fallback. Unblocks grading of post-2026-05-22 recommendations ~7 days after merge.
 - [x] **D1+D2 digest panels** — done session 06 (panel-9 / panel-10, schema v2, queries validated).
-- [ ] **Merge `feat/session-06-wave-1-5` to `main`** — user action; until then the cron writes no `price_checks`.
+- [x] **Merge `feat/session-06-wave-1-5` to `main`** — done 2026-06-12 (`881038d`); cron `price_checks` accumulate from 2026-06-12.
 
 ### Wave 2 — Signal quality
 
-- [ ] **Wire `fetch_ticker_news` into the per-ticker prompt.** [src/collectors/prices.py:43](src/collectors/prices.py#L43) exists but is never called. Pass top ~5 headlines into `analyze_ticker`. Highest-quality single improvement available.
-- [ ] **Earnings awareness.** Fetch the next earnings date via yfinance and add "Próximo earnings: ..." to the ticker prompt — imminent earnings should temper/inform the call.
+- [x] **Wire `fetch_ticker_news` into the per-ticker prompt** — done session 07: top 5 headlines as an optional "Noticias recientes del ticker:" block.
+- [x] **Earnings awareness** — done session 07: `fetch_next_earnings` (schema-tolerant, degrades to None) + "Próximo reporte de earnings:" prompt line.
 - [ ] **Constrain action set per phase.** HOLDING → {HOLD, SELL}; WATCHLIST → {BUY, WATCH, AVOID}. Tighten the prompt wording AND post-validate: coerce out-of-set actions to the nearest valid one and log the coercion.
 - [ ] **Structured JSON output instead of text parsing.** Replace `_parse_json` string-stripping with the API's structured/tool-use output so malformed JSON becomes impossible. **Read the `/claude-api` skill at implementation time** for the current recommended mechanism; also sanity-check whether the tiny system prompts even reach the cacheable minimum (likely not → drop or restructure `cache_control`).
-- [ ] **Validate via `--dry-run`** before merging (prompts changed).
+- [x] **Validate via `--dry-run`** — done session 07 for items 1–2 (63 ok / 0 failed); repeat when items 3–4 change the prompts again.
 
 ### Wave 3 — Observability & hygiene
 
@@ -127,7 +141,7 @@ Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**;
 - [ ] **Action-flip detection.** When a ticker's new action differs from its previous one (HOLD→SELL, WATCH→BUY…), include the flips in the daily-summary prompt input and add a "recent flips" panel/table to the digest dashboard. (This is the no-notifications substitute.)
 - [ ] **Persist trending-unknown tickers.** Today `find_trending_unknown` results only hit logs/summary text. New table (migration 003) so "should I watchlist this?" signals survive and can trend over time.
 - [ ] **Batched Reddit-mention sentiment.** One extra Haiku call per run to classify that run's mentions; fills the always-NULL `reddit_mentions.sentiment` ([src/persistence/writers.py:65](src/persistence/writers.py#L65)). **Gated on Reddit creds existing.**
-- [ ] **Confidence-calibration panel (D3, adopted session 05).** Hit-rate bucketed by confidence band (0.4–0.59 / 0.6–0.79 / 0.8+) on the digest dashboard. ~~Gated on outcomes data~~ **ungated** by the 693-row backfill; **sequence after the Wave 1.5 grading-semantics fix** or the numbers mislead.
+- [x] **Confidence-calibration panel (D3, adopted session 05)** — done session 07: panel-11, 4 bands (<0.40 added — real confidences reach 0.25), hit-rate = correct/decided. Already shows monotone calibration for WATCH (59→69→80%).
 - [ ] **S5 — weekly retrospective digest (adopted session 05).** On Friday's 17:00 run, one extra Claude call writes a week-in-review in Spanish (calls vs outcomes, action flips, sector exposure); persist it and add a digest panel. ~1 Haiku call/week.
 
 ### Fold-in cleanups (no scheduled wave — grab when touching the area)
@@ -139,6 +153,7 @@ Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**;
 
 ## Decisions log
 
+- _2026-06-12 (session 07)_ — **D3 definitions**: hit-rate = correct / decided (NEUTRAL excluded), matching panel-7, and a 4th `< 0.40` confidence band added (real confidences go down to 0.25; the HANDOFF_06 draft's `ELSE '0.4–0.59'` would have mislabeled 40 rows). News/earnings prompt blocks are **omitted entirely** when empty so data-less tickers (ETFs) keep the exact pre-Wave-2 prompt.
 - _2026-06-12 (session 06)_ — **Grading semantics decided** (user choice with the 693-row backfill as evidence): **WATCH is movement-graded** — CORRECT if |forward_return| ≥ 5% ("worth watching" = it moved), INCORRECT if |forward_return| < 2% (the watch wasted attention), NEUTRAL in between; **HOLD gets a −10% band** — INCORRECT if forward_return < −10% (that holding deserved a SELL), CORRECT if |forward_return| ≤ 2%, NEUTRAL otherwise (upside never penalized). BUY/SELL/AVOID stay directional with the ±2% neutral band. All 693 backfilled outcomes deleted and re-graded under the new rules (authorized; fully re-derivable).
 - _2026-06-12 (session 05)_ — **Roadmap picks from S1–S6 + dashboard ideas**: adopted **S1** (in-repo `price_checks` fallback), **S5** (weekly retrospective), **D1+D2** (morning-vs-afternoon divergence + action-mix-over-time digest panels), **D3** (confidence-calibration panel, sequenced after the grading-semantics fix). **S6 (event-driven runs) deferred**; S2/S3/S4 not adopted for now (revisit once outcomes are fresh).
 - _2026-06-12 (session 05)_ — **Grading-semantics decision pulled forward** from Wave 3 to the next session (Wave 1.5): the 693-row backfill is visibly skewed (326 INCORRECT) by WATCH-graded-as-bullish, and outcome-based panels shouldn't be built on top of it.

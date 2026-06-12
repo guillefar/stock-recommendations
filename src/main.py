@@ -11,7 +11,7 @@ from src.analysis.macro import run_macro_analysis
 from src.analysis.recommendation import run_ticker_recommendation
 from src.analysis.summary import run_daily_summary
 from src.collectors.news import fetch_macro_headlines
-from src.collectors.prices import fetch_prices_and_indicators
+from src.collectors.prices import fetch_next_earnings, fetch_prices_and_indicators, fetch_ticker_news
 from src.collectors.reddit import extract_ticker_mentions, fetch_reddit_posts, find_trending_unknown
 from src.config import load_config
 from src.db import get_active_tickers, get_connection, get_known_symbols
@@ -99,7 +99,18 @@ def main(dry_run: bool = False) -> None:
                     ],
                 }
 
-                ticker_data = {**ticker, "technical": technical, "sentiment": sentiment_summary}
+                # Both collectors degrade to empty/None on error — news and
+                # earnings enrich the prompt but never fail the ticker.
+                news = fetch_ticker_news(symbol)[:5]
+                next_earnings = fetch_next_earnings(symbol)
+
+                ticker_data = {
+                    **ticker,
+                    "technical": technical,
+                    "sentiment": sentiment_summary,
+                    "news": news,
+                    "next_earnings": next_earnings,
+                }
                 recommendation = run_ticker_recommendation(claude, ticker_data, macro_signals)
                 if recommendation is None:
                     logger.error(f"{symbol}: unparseable Claude response — nothing persisted")
