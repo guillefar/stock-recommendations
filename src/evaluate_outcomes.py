@@ -1,7 +1,8 @@
 """Grade past recommendations against what the price actually did.
 
-For each matured recommendation, finds the first price snapshot at/after a fixed
-horizon, computes the forward return, and assigns a verdict. Results land in
+For each matured recommendation, finds the first price at/after a fixed horizon
+(from `price_snapshots`, falling back to the in-repo `price_checks` table),
+computes the forward return, and assigns a verdict. Results land in
 `recommendation_outcomes` (one row per recommendation per horizon).
 
 Run after a few days of price history have accumulated:
@@ -39,14 +40,27 @@ NEUTRAL_BAND = 0.02
 # against matching a far-future snapshot when price data is sparse.
 EXIT_WINDOW_DAYS = 14
 
+# WATCH is movement-graded: a move at least this large (either direction) means
+# the ticker was worth watching.
+WATCH_MOVE_THRESHOLD = 0.05
+
+# HOLD is wrong only on a deep loss: a drop beyond this band means the holding
+# deserved a SELL call instead.
+HOLD_LOSS_BAND = 0.10
+
 
 def grade(action: str, forward_return: float, band: float = NEUTRAL_BAND) -> str:
     """Verdict for a recommendation given its forward return.
 
-    BUY/WATCH lean bullish, SELL/AVOID lean bearish, HOLD expects no big move.
+    Semantics (decisions log, 2026-06-12 session 06):
+    - BUY is bullish, SELL/AVOID bearish, with a ±`band` neutral zone.
+    - WATCH is direction-agnostic: CORRECT if |return| ≥ WATCH_MOVE_THRESHOLD,
+      INCORRECT if |return| < `band` (the watch wasted attention), else NEUTRAL.
+    - HOLD: CORRECT if flat (|return| ≤ `band`), INCORRECT below −HOLD_LOSS_BAND,
+      else NEUTRAL. Upside is never penalized.
     Returns 'CORRECT', 'INCORRECT', or 'NEUTRAL'.
     """
-    if action in ("BUY", "WATCH"):
+    if action == "BUY":
         if forward_return > band:
             return "CORRECT"
         if forward_return < -band:
@@ -58,7 +72,15 @@ def grade(action: str, forward_return: float, band: float = NEUTRAL_BAND) -> str
         if forward_return > band:
             return "INCORRECT"
         return "NEUTRAL"
-    # HOLD — a small move confirms the call; a large one is just noise, not a miss.
+    if action == "WATCH":
+        if abs(forward_return) >= WATCH_MOVE_THRESHOLD:
+            return "CORRECT"
+        if abs(forward_return) < band:
+            return "INCORRECT"
+        return "NEUTRAL"
+    # HOLD
+    if forward_return < -HOLD_LOSS_BAND:
+        return "INCORRECT"
     return "CORRECT" if abs(forward_return) <= band else "NEUTRAL"
 
 
@@ -67,7 +89,13 @@ def _now() -> datetime:
 
 
 def _fetch_matured(conn, horizon: int, now: datetime) -> list[dict]:
-    """Recommendations matured at this horizon and not yet graded for it."""
+    """Recommendations matured at this horizon and not yet graded for it.
+
+    Each row carries two exit-price candidates: one from the sibling
+    price_snapshots table and one from the in-repo price_checks table
+    (daily granularity, so its window is computed on calendar dates).
+    The caller prefers price_snapshots when both exist.
+    """
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -87,7 +115,17 @@ def _fetch_matured(conn, horizon: int, now: datetime) -> list[dict]:
                  WHERE ps.ticker_id = r.ticker_id
                    AND ps.as_of_date >= r.generated_at + INTERVAL %s DAY
                    AND ps.as_of_date <  r.generated_at + INTERVAL %s DAY
-                 ORDER BY ps.as_of_date ASC LIMIT 1)      AS exit_as_of
+                 ORDER BY ps.as_of_date ASC LIMIT 1)      AS exit_as_of,
+              (SELECT pc.price FROM price_checks pc
+                 WHERE pc.ticker_id = r.ticker_id
+                   AND pc.as_of_date >= DATE(r.generated_at) + INTERVAL %s DAY
+                   AND pc.as_of_date <  DATE(r.generated_at) + INTERVAL %s DAY
+                 ORDER BY pc.as_of_date ASC LIMIT 1)      AS check_exit_price,
+              (SELECT pc.as_of_date FROM price_checks pc
+                 WHERE pc.ticker_id = r.ticker_id
+                   AND pc.as_of_date >= DATE(r.generated_at) + INTERVAL %s DAY
+                   AND pc.as_of_date <  DATE(r.generated_at) + INTERVAL %s DAY
+                 ORDER BY pc.as_of_date ASC LIMIT 1)      AS check_exit_as_of
             FROM recommendations r
             WHERE r.generated_at + INTERVAL %s DAY <= %s
               AND NOT EXISTS (
@@ -96,6 +134,8 @@ def _fetch_matured(conn, horizon: int, now: datetime) -> list[dict]:
               )
             """,
             (
+                horizon, horizon + EXIT_WINDOW_DAYS,
+                horizon, horizon + EXIT_WINDOW_DAYS,
                 horizon, horizon + EXIT_WINDOW_DAYS,
                 horizon, horizon + EXIT_WINDOW_DAYS,
                 horizon, now, horizon,
@@ -140,9 +180,14 @@ def main(dry_run: bool = False) -> None:
             rows = _fetch_matured(conn, horizon, now)
             graded = 0
             for row in rows:
+                if row["exit_price"] is None and row["check_exit_price"] is not None:
+                    # price_snapshots has no row in the window — fall back to
+                    # the in-repo price_checks observation.
+                    row["exit_price"] = row["check_exit_price"]
+                    row["exit_as_of"] = row["check_exit_as_of"]
                 entry, exit_ = row["entry_price"], row["exit_price"]
                 if entry is None or exit_ is None or entry == 0:
-                    continue  # missing entry price or no matured snapshot yet
+                    continue  # missing entry price or no matured price in either table
                 fwd = float(exit_) / float(entry) - 1.0
                 verdict = grade(row["action"], fwd)
                 graded += 1

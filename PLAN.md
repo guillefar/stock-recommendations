@@ -6,18 +6,30 @@ Living document. Update as work progresses. See [PROJECT_SUMMARY.md](PROJECT_SUM
 
 ## Current state
 
-Pipeline is wired end-to-end, **Wave 1 is merged to `main`** (`ca4937a`, pushed 2026-06-12), and the system has had its **first real (non-dry-run) execution** (session 05, 2026-06-12): 63/63 tickers ok, first decisive calls stored (34 WATCH / 27 HOLD / **2 SELL**), daily summary written, and `evaluate_outcomes` **backfilled 693 outcome rows at the 7d horizon** (of 945 matured candidates; 0 at 30d). The 4h per-run dedup was verified with a second same-day run (63/63 "Skipping duplicate", today-count unchanged). Sessions now run in their **own git worktree** (decision, see log).
+Pipeline is wired end-to-end and **Wave 1.5 is complete on branch `feat/session-06-wave-1-5`** (session 06, 2026-06-12; not yet merged). Grading semantics were decided and implemented (WATCH movement-graded, HOLD −10% loss band — see decisions log), and all 693 outcomes were **re-graded: 335 CORRECT / 155 INCORRECT / 203 NEUTRAL** (was 113/326/254). **S1 landed**: migration 003 `price_checks` is applied to the DB, `src.main` upserts one price row per ticker per run, and `evaluate_outcomes` falls back to `price_checks` when `price_snapshots` has no row in the horizon window — today already has **63/63 tickers covered**. D1 (same-day disagreements) + D2 (action mix over time) panels added to the digest dashboard (schema v2). Bonus fix: yfinance returned NaN closes mid-session for 21 European ETFs (so Claude saw `price: None` and those recs stored NULL entry prices); the collector now uses the last *valid* close.
 
 **Known data caveats:**
-- The sibling `price_snapshots` table is stale (last row 2026-05-22), so **new** recommendations can't be graded until **S1 (in-repo `price_checks` fallback, adopted)** lands. The 693 backfilled outcomes all come from the old always-HOLD/WATCH prompt era.
-- **Grading semantics skew the backfill**: verdicts are 326 INCORRECT / 113 CORRECT / 254 NEUTRAL, dominated by WATCH-graded-as-bullish in a falling market. The semantics decision is pulled forward to session 06 (decision, see log).
-- The daily summary is a per-day upsert, so the 17:00 run overwrites the 11:00 one; the two session-05 runs minutes apart flipped BEARISH→MIXED (model variance on near-identical input). See the per-run-summary suggestion in HANDOFF_05.
+- `price_snapshots` is still stale (last row 2026-05-22). New recommendations become gradeable ~7 days after `price_checks` rows start accumulating under the **merged** code — the cron runs `main`, so nothing accumulates from the cron until this branch merges. 252 matured candidates currently have no exit price in either table (the gap between 2026-05-22 snapshots and the first price_checks rows); most of the 2026-05-29 → 2026-06-05 era recs will stay ungradeable forever (no exit price exists for their window).
+- Recs from the 21 European ETFs with the NaN-close bug have NULL entry prices (ungradeable) up to 2026-06-12; fixed going forward.
+- The daily summary is a per-day upsert, so the 17:00 run overwrites the 11:00 one; the two session-05 runs minutes apart flipped BEARISH→MIXED (model variance on near-identical input). See the per-run-summary suggestion S8 in HANDOFF_05.
 
 **Reddit is dark:** the PRAW collector is committed but has no credentials yet, so every recommendation currently runs with zero Reddit sentiment (technicals + macro only).
 
 ## In progress
 
-- _(none)_
+- _(none — Wave 1.5 awaiting merge of `feat/session-06-wave-1-5`)_
+
+## Done (session 06 — 2026-06-12, Wave 1.5)
+
+On branch **`feat/session-06-wave-1-5`** (off `main` @ `604e229`), in worktree `.claude/worktrees/session-06-wave-1-5`:
+
+- **Grading semantics implemented** (user decisions, see log): `grade()` in [src/evaluate_outcomes.py](src/evaluate_outcomes.py) — WATCH movement-graded (`WATCH_MOVE_THRESHOLD = 0.05`), HOLD loss band (`HOLD_LOSS_BAND = 0.10`), BUY/SELL/AVOID unchanged. [tests/test_outcomes.py](tests/test_outcomes.py) rewritten for the new rules (4 tests, all pass).
+- **Backfill re-graded** (authorized): deleted all 693 `recommendation_outcomes` rows, re-ran the evaluator → 693 rows again. Verdicts went **113 C / 326 I / 254 N → 335 C / 155 I / 203 N** (WATCH 250 C / 81 I / 104 N; HOLD 84 C / 74 I / 99 N; AVOID 1 C) — exactly the distribution predicted when the user picked the options.
+- **S1 landed.** [migrations/003_create_price_checks.sql](migrations/003_create_price_checks.sql) applied to the DB (UNIQUE on ticker_id + as_of_date). New `write_price_check` in [src/persistence/writers.py](src/persistence/writers.py) (upsert; respects dry-run; warns + skips on NULL price), called per ticker in [src/main.py](src/main.py) right after the technical fetch so the price lands even if the recommendation later fails. `_fetch_matured` in [src/evaluate_outcomes.py](src/evaluate_outcomes.py) now returns a second exit-price candidate from `price_checks` (calendar-day window, since it's a DATE column) and the loop falls back to it when `price_snapshots` has none.
+- **Bonus fix — NaN closes.** 21 of 63 tickers (all European ETFs) had `technical.price = None` because yfinance emits today's row with NaN Close mid-session; [src/collectors/prices.py](src/collectors/prices.py) now drops NaN closes before taking the last. Validated by backfilling exactly those 21 tickers' price rows (21/21 ok).
+- **D1+D2 panels** added to [grafana/daily_digest_dashboard.json](grafana/daily_digest_dashboard.json) (panel-9 table, panel-10 stacked-bars timeseries; schema-v2 `elements`/`layout`; both queries validated against the live DB — D1 is legitimately empty until a day has two disagreeing runs).
+- **Validated:** pytest 4/4; `src.main --dry-run` 63 ok / 0 failed, no writes; one real `src.main` (exit 0, recs dedup-skipped as expected, price_checks written); `evaluate_outcomes --dry-run` clean; `price_checks` ends the day at **63/63 tickers**.
+- **Reddit still dark** — `.env` has none of the three `REDDIT_*` vars; user task remains open.
 
 ## Done (session 05 — 2026-06-12, first real execution + roadmap decisions)
 
@@ -87,11 +99,12 @@ Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**;
 - [x] **First real (non-dry-run) execution** — done session 05 (local): 63/63 ok, 2 SELL rows stored, 693 outcomes backfilled, dedup verified with a second run.
 - [x] **Merge `chore/cron-2x-daily-and-datetime-cleanup` to `main`** — done 2026-06-12 (fast-forward to `2197dc1`, pushed).
 
-### Wave 1.5 — Outcome integrity & freshness (adopted session 05; next session)
+### Wave 1.5 — Outcome integrity & freshness (done session 06, awaiting merge)
 
-- [ ] **Decide grading semantics with the user, then implement.** Today WATCH grades as bullish and HOLD can never be INCORRECT — the 693-row backfill came out 326 INCORRECT / 113 CORRECT / 254 NEUTRAL largely by semantics. Options to put to the user: exclude WATCH from hit-rate or grade it on |move|; make HOLD INCORRECT beyond a band (e.g. ±10%). Record in decisions log, update `grade()` in [src/evaluate_outcomes.py](src/evaluate_outcomes.py) + [tests/test_outcomes.py](tests/test_outcomes.py), then **re-grade**: delete + regenerate the backfilled rows (they are fully re-derivable).
-- [ ] **S1 — in-repo price-snapshot fallback.** Migration 003: `price_checks(ticker_id, as_of_date, price)` owned by this repo; write one row per ticker per run (price already fetched in `technical`); `evaluate_outcomes` falls back to it when `price_snapshots` has no row in the horizon window. Unblocks grading of all post-2026-05-22 recommendations.
-- [ ] **D1+D2 digest panels** (if time): per-day morning-vs-afternoon disagreement table + daily action-mix stacked bars. Schema-v2 `elements`/`layout` format only; validate queries against the live DB.
+- [x] **Decide grading semantics with the user, then implement** — done session 06: WATCH movement-graded, HOLD −10% band (decisions log); `grade()` + tests updated; backfill re-graded 335 C / 155 I / 203 N.
+- [x] **S1 — in-repo price-snapshot fallback** — done session 06: migration 003 applied, per-run upserts in main, evaluator fallback. Unblocks grading of post-2026-05-22 recommendations ~7 days after merge.
+- [x] **D1+D2 digest panels** — done session 06 (panel-9 / panel-10, schema v2, queries validated).
+- [ ] **Merge `feat/session-06-wave-1-5` to `main`** — user action; until then the cron writes no `price_checks`.
 
 ### Wave 2 — Signal quality
 
@@ -126,6 +139,7 @@ Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**;
 
 ## Decisions log
 
+- _2026-06-12 (session 06)_ — **Grading semantics decided** (user choice with the 693-row backfill as evidence): **WATCH is movement-graded** — CORRECT if |forward_return| ≥ 5% ("worth watching" = it moved), INCORRECT if |forward_return| < 2% (the watch wasted attention), NEUTRAL in between; **HOLD gets a −10% band** — INCORRECT if forward_return < −10% (that holding deserved a SELL), CORRECT if |forward_return| ≤ 2%, NEUTRAL otherwise (upside never penalized). BUY/SELL/AVOID stay directional with the ±2% neutral band. All 693 backfilled outcomes deleted and re-graded under the new rules (authorized; fully re-derivable).
 - _2026-06-12 (session 05)_ — **Roadmap picks from S1–S6 + dashboard ideas**: adopted **S1** (in-repo `price_checks` fallback), **S5** (weekly retrospective), **D1+D2** (morning-vs-afternoon divergence + action-mix-over-time digest panels), **D3** (confidence-calibration panel, sequenced after the grading-semantics fix). **S6 (event-driven runs) deferred**; S2/S3/S4 not adopted for now (revisit once outcomes are fresh).
 - _2026-06-12 (session 05)_ — **Grading-semantics decision pulled forward** from Wave 3 to the next session (Wave 1.5): the 693-row backfill is visibly skewed (326 INCORRECT) by WATCH-graded-as-bullish, and outcome-based panels shouldn't be built on top of it.
 - _2026-06-12 (session 05)_ — **Each session works in its own git worktree** (not just a branch), per user instruction. Worktrees live under `.claude/worktrees/`; symlink `.env` and `.venv` from the main checkout into the worktree.

@@ -64,7 +64,7 @@
         "description": "Claude's full market summary for the latest day inside the selected time range. Narrow the time picker (top-right) to a single day to read any past date.",
         "id": 1,
         "links": [],
-        "title": "Daily Market Summary \u2014 selected day",
+        "title": "Daily Market Summary — selected day",
         "vizConfig": {
           "group": "table",
           "kind": "VizConfig",
@@ -227,7 +227,7 @@
         "description": "Every per-ticker recommendation generated on the selected day. 'phase' = whether you hold it (HOLDING) or it's on your watchlist (WATCHLIST); 'action' = what Claude recommends. They diverge on the actionable rows (e.g. HOLDING+SELL, WATCHLIST+BUY).",
         "id": 2,
         "links": [],
-        "title": "Recommendations \u2014 selected day",
+        "title": "Recommendations — selected day",
         "vizConfig": {
           "group": "table",
           "kind": "VizConfig",
@@ -431,7 +431,7 @@
         "description": "Macro/sector themes Claude detected from headlines on the selected day.",
         "id": 3,
         "links": [],
-        "title": "Macro Signals \u2014 selected day",
+        "title": "Macro Signals — selected day",
         "vizConfig": {
           "group": "table",
           "kind": "VizConfig",
@@ -523,7 +523,7 @@
         "description": "Highest-scoring /r/stocks posts captured on the selected day.",
         "id": 4,
         "links": [],
-        "title": "Top Reddit Posts \u2014 selected day",
+        "title": "Top Reddit Posts — selected day",
         "vizConfig": {
           "group": "table",
           "kind": "VizConfig",
@@ -1370,6 +1370,400 @@
           "version": "13.1.0-27127308516"
         }
       }
+    },
+    "panel-9": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT\n  DATE(r1.generated_at)            AS day,\n  t.symbol,\n  TIME(r1.generated_at)            AS `run 1`,\n  r1.action                        AS `action 1`,\n  TIME(r2.generated_at)            AS `run 2`,\n  r2.action                        AS `action 2`,\n  ROUND(r1.confidence * 100, 0)    AS `conf 1 %`,\n  ROUND(r2.confidence * 100, 0)    AS `conf 2 %`\nFROM recommendations r1\nJOIN recommendations r2\n  ON r2.ticker_id = r1.ticker_id\n AND DATE(r2.generated_at) = DATE(r1.generated_at)\n AND r2.generated_at > r1.generated_at\n AND r2.action <> r1.action\nJOIN tickers t ON t.id = r1.ticker_id\nWHERE $__timeFilter(r1.generated_at)\nORDER BY day DESC, t.symbol"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Tickers where two runs on the same day disagreed on the action (morning vs afternoon). Empty until a day accumulates two runs with different calls — each row is the model changing its mind intraday.",
+        "id": 9,
+        "links": [],
+        "title": "Same-day run disagreements (D1)",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "align": "left",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "filterable": true,
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "action 1"
+                  },
+                  "properties": [
+                    {
+                      "id": "mappings",
+                      "value": [
+                        {
+                          "type": "value",
+                          "options": {
+                            "BUY": {
+                              "color": "green",
+                              "index": 0
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "SELL": {
+                              "color": "red",
+                              "index": 1
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "HOLD": {
+                              "color": "blue",
+                              "index": 2
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "WATCH": {
+                              "color": "orange",
+                              "index": 3
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "AVOID": {
+                              "color": "dark-red",
+                              "index": 4
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "color-text"
+                      }
+                    },
+                    {
+                      "id": "custom.width",
+                      "value": 90
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "action 2"
+                  },
+                  "properties": [
+                    {
+                      "id": "mappings",
+                      "value": [
+                        {
+                          "type": "value",
+                          "options": {
+                            "BUY": {
+                              "color": "green",
+                              "index": 0
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "SELL": {
+                              "color": "red",
+                              "index": 1
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "HOLD": {
+                              "color": "blue",
+                              "index": 2
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "WATCH": {
+                              "color": "orange",
+                              "index": 3
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "AVOID": {
+                              "color": "dark-red",
+                              "index": 4
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "color-text"
+                      }
+                    },
+                    {
+                      "id": "custom.width",
+                      "value": 90
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "footer": {
+                "countRows": false,
+                "fields": "",
+                "reducer": [
+                  "sum"
+                ],
+                "show": false
+              },
+              "showHeader": true
+            }
+          }
+        }
+      }
+    },
+    "panel-10": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT\n  UNIX_TIMESTAMP(DATE(generated_at)) AS time_sec,\n  SUM(action = 'BUY')   AS BUY,\n  SUM(action = 'WATCH') AS WATCH,\n  SUM(action = 'HOLD')  AS HOLD,\n  SUM(action = 'AVOID') AS AVOID,\n  SUM(action = 'SELL')  AS SELL\nFROM recommendations\nWHERE $__timeFilter(generated_at)\nGROUP BY time_sec\nORDER BY time_sec"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "How the action mix shifts day over day (stacked counts per action). Watch for WATCH/HOLD share giving way to decisive BUY/SELL calls after the prompt rework.",
+        "id": 10,
+        "links": [],
+        "title": "Action mix over time (D2)",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "drawStyle": "bars",
+                  "fillOpacity": 85,
+                  "lineWidth": 1,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "normal"
+                  },
+                  "barAlignment": 0,
+                  "pointSize": 5,
+                  "showPoints": "never",
+                  "axisPlacement": "auto",
+                  "axisLabel": "",
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "spanNulls": false,
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "BUY"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "green"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "WATCH"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "orange"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "HOLD"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "blue"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "AVOID"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "dark-red"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "SELL"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "red"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "legend": {
+                "calcs": [],
+                "displayMode": "list",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "none"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "layout": {
@@ -1479,6 +1873,32 @@
             "x": 14,
             "y": 45
           }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-9"
+            },
+            "height": 8,
+            "width": 24,
+            "x": 0,
+            "y": 55
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-10"
+            },
+            "height": 9,
+            "width": 24,
+            "x": 0,
+            "y": 63
+          }
         }
       ]
     }
@@ -1511,6 +1931,6 @@
     "timezone": "browser",
     "to": "now"
   },
-  "title": "Stock Recommendations \u2014 Daily Digest",
+  "title": "Stock Recommendations — Daily Digest",
   "variables": []
 }

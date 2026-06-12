@@ -15,7 +15,12 @@ def fetch_prices_and_indicators(symbol: str) -> dict:
             logger.warning(f"No price history for {symbol}")
             return {}
 
-        close = hist["Close"]
+        # Yahoo can emit today's row with NaN Close mid-session (seen on
+        # European ETFs); use the last *valid* close so price is never NaN.
+        close = hist["Close"].dropna()
+        if close.empty:
+            logger.warning(f"No valid close prices for {symbol}")
+            return {}
         current_price = close.iloc[-1]
 
         def f(v) -> float | None:

@@ -83,6 +83,39 @@ def write_reddit_mentions(
                 pass
 
 
+def write_price_check(
+    conn: pymysql.Connection,
+    ticker_id: int,
+    price: float | None,
+    dry_run: bool = False,
+) -> None:
+    """Upserts today's observed price for a ticker (one row per ticker per day).
+
+    Feeds the in-repo `price_checks` table so outcomes stay gradeable while the
+    sibling price_snapshots table is stale. The second run of the day refreshes
+    the price.
+    """
+    if price is None:
+        logger.warning(f"No price to record for ticker_id={ticker_id} — skipping price check")
+        return
+    if dry_run:
+        logger.info(f"[dry-run] Would upsert price check for ticker_id={ticker_id}: {price}")
+        return
+
+    now = _utcnow()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO price_checks (ticker_id, as_of_date, price, created_at)
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+              price      = VALUES(price),
+              created_at = VALUES(created_at)
+            """,
+            (ticker_id, now.date(), price, now),
+        )
+
+
 def write_recommendation(
     conn: pymysql.Connection,
     ticker_id: int,

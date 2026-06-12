@@ -18,6 +18,7 @@ from src.db import get_active_tickers, get_connection, get_known_symbols
 from src.persistence.writers import (
     write_daily_summary,
     write_macro_signals,
+    write_price_check,
     write_recommendation,
     write_reddit_mentions,
 )
@@ -81,6 +82,11 @@ def main(dry_run: bool = False) -> None:
                     logger.warning(f"No technical data for {symbol}, skipping")
                     failed_symbols.append(symbol)
                     continue
+
+                # Record today's price even if the recommendation later fails —
+                # it's what keeps outcomes gradeable (price_snapshots is stale).
+                conn.ping(reconnect=True)
+                write_price_check(conn, ticker["id"], technical.get("price"), dry_run=dry_run)
 
                 posts_for_ticker = ticker_mentions.get(symbol, [])
                 scores = [p["score"] for p in posts_for_ticker]
