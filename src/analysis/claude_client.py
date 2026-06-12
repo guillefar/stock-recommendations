@@ -59,7 +59,7 @@ Para cada tema usa exactamente este schema:
         )
         return _parse_json(response.content[0].text, default=[])
 
-    def analyze_ticker(self, ticker_data: dict, macro_signals: list[dict]) -> dict:
+    def analyze_ticker(self, ticker_data: dict, macro_signals: list[dict]) -> dict | None:
         tech = ticker_data.get("technical", {})
         sent = ticker_data.get("sentiment", {})
 
@@ -129,10 +129,9 @@ prudencia. Responde SOLO con este JSON (sin texto adicional):
             system=[{"type": "text", "text": _RECOMMENDATION_SYSTEM, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": user_msg}],
         )
-        return _parse_json(
-            response.content[0].text,
-            default={"action": "HOLD", "confidence": 0.5, "reasoning": "Error al parsear respuesta."},
-        )
+        # No fallback recommendation: a parse failure must surface as None so the
+        # caller skips persistence instead of storing a fake HOLD.
+        return _parse_json(response.content[0].text, default=None)
 
     def generate_daily_summary(self, analysis_data: dict) -> dict:
         tickers = analysis_data.get("tickers_analyzed", [])

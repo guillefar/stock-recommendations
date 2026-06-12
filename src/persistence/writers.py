@@ -1,12 +1,17 @@
 import json
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pymysql
 
 from src.analysis.claude_client import MODEL
 
 logger = logging.getLogger(__name__)
+
+# A ticker with a recommendation newer than this is a duplicate of the current run
+# (protects against same-slot workflow retries) while still allowing the two
+# scheduled runs per day to each write their own row.
+DEDUP_WINDOW_HOURS = 4
 
 
 def _utcnow() -> datetime:
@@ -87,7 +92,7 @@ def write_recommendation(
     macro_signal_id: int | None,
     dry_run: bool = False,
 ) -> None:
-    """Inserts a recommendation row. Skips if one already exists for this ticker today."""
+    """Inserts a recommendation row. Skips if one exists for this ticker within the dedup window."""
     if dry_run:
         logger.info(
             f"[dry-run] Would insert recommendation for ticker_id={ticker_id}: "
@@ -100,12 +105,15 @@ def write_recommendation(
             """
             SELECT COUNT(*) AS cnt
             FROM recommendations
-            WHERE ticker_id = %s AND DATE(generated_at) = %s
+            WHERE ticker_id = %s AND generated_at >= %s
             """,
-            (ticker_id, date.today()),
+            (ticker_id, _utcnow() - timedelta(hours=DEDUP_WINDOW_HOURS)),
         )
         if cur.fetchone()["cnt"] > 0:
-            logger.info(f"Skipping duplicate recommendation for ticker_id={ticker_id} (already exists today)")
+            logger.info(
+                f"Skipping duplicate recommendation for ticker_id={ticker_id} "
+                f"(row within last {DEDUP_WINDOW_HOURS}h)"
+            )
             return
 
         cur.execute(

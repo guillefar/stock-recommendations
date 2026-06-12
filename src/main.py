@@ -36,126 +36,131 @@ def main(dry_run: bool = False) -> None:
 
     claude = ClaudeClient(cfg)
 
-    # ── 1. Load active tickers ──────────────────────────────────────────────
+    # One connection for the whole run; ping(reconnect=True) before each write
+    # phase in case it idled out during the Claude/yfinance calls.
     conn = get_connection(cfg)
     try:
+        # ── 1. Load active tickers ──────────────────────────────────────────
         tickers = get_active_tickers(conn)
         known_symbols = get_known_symbols(conn)
-    finally:
-        conn.close()
 
-    logger.info(f"Active tickers: {[t['symbol'] for t in tickers]}")
+        logger.info(f"Active tickers: {[t['symbol'] for t in tickers]}")
 
-    # ── 2. Fetch Reddit posts ───────────────────────────────────────────────
-    logger.info("Fetching Reddit posts from /r/stocks...")
-    reddit_posts = fetch_reddit_posts(cfg)
+        # ── 2. Fetch Reddit posts ───────────────────────────────────────────
+        logger.info("Fetching Reddit posts from /r/stocks...")
+        reddit_posts = fetch_reddit_posts(cfg)
 
-    # ── 3. Fetch macro headlines ────────────────────────────────────────────
-    logger.info("Fetching macro headlines from RSS feeds...")
-    headlines = fetch_macro_headlines()
-    logger.info(f"Got {len(headlines)} macro headlines")
+        # ── 3. Fetch macro headlines ────────────────────────────────────────
+        logger.info("Fetching macro headlines from RSS feeds...")
+        headlines = fetch_macro_headlines()
+        logger.info(f"Got {len(headlines)} macro headlines")
 
-    # ── 4. Macro analysis (1 Claude call) ──────────────────────────────────
-    logger.info("Running macro analysis with Claude...")
-    macro_signals = run_macro_analysis(claude, headlines)
+        # ── 4. Macro analysis (1 Claude call) ───────────────────────────────
+        logger.info("Running macro analysis with Claude...")
+        macro_signals = run_macro_analysis(claude, headlines)
 
-    conn = get_connection(cfg)
-    try:
+        conn.ping(reconnect=True)
         macro_signal_ids = write_macro_signals(conn, macro_signals, dry_run=dry_run)
-    finally:
-        conn.close()
 
-    # ── 5. Extract Reddit ticker mentions ───────────────────────────────────
-    ticker_mentions = extract_ticker_mentions(reddit_posts, known_symbols)
+        # ── 5. Extract Reddit ticker mentions ────────────────────────────────
+        ticker_mentions = extract_ticker_mentions(reddit_posts, known_symbols)
 
-    # ── 6. Per-ticker analysis ──────────────────────────────────────────────
-    all_recommendations = []
+        # ── 6. Per-ticker analysis ───────────────────────────────────────────
+        # Failures are isolated per ticker: log, count, and move on, so one bad
+        # ticker or API hiccup can't abort the unattended run.
+        all_recommendations = []
+        failed_symbols = []
 
-    for ticker in tickers:
-        symbol = ticker["symbol"]
-        logger.info(f"Processing {symbol}...")
+        for ticker in tickers:
+            symbol = ticker["symbol"]
+            logger.info(f"Processing {symbol}...")
 
-        technical = fetch_prices_and_indicators(symbol)
-        if not technical:
-            logger.warning(f"No technical data for {symbol}, skipping")
-            continue
+            try:
+                technical = fetch_prices_and_indicators(symbol)
+                if not technical:
+                    logger.warning(f"No technical data for {symbol}, skipping")
+                    failed_symbols.append(symbol)
+                    continue
 
-        posts_for_ticker = ticker_mentions.get(symbol, [])
-        scores = [p["score"] for p in posts_for_ticker]
-        sentiment_summary = {
-            "mention_count": len(posts_for_ticker),
-            "avg_score": round(sum(scores) / len(scores), 1) if scores else 0,
-            "top_posts": [
-                {"title": p["title"], "score": p["score"]}
-                for p in sorted(posts_for_ticker, key=lambda x: x["score"], reverse=True)[:3]
-            ],
-        }
+                posts_for_ticker = ticker_mentions.get(symbol, [])
+                scores = [p["score"] for p in posts_for_ticker]
+                sentiment_summary = {
+                    "mention_count": len(posts_for_ticker),
+                    "avg_score": round(sum(scores) / len(scores), 1) if scores else 0,
+                    "top_posts": [
+                        {"title": p["title"], "score": p["score"]}
+                        for p in sorted(posts_for_ticker, key=lambda x: x["score"], reverse=True)[:3]
+                    ],
+                }
 
-        ticker_data = {**ticker, "technical": technical, "sentiment": sentiment_summary}
-        recommendation = run_ticker_recommendation(claude, ticker_data, macro_signals)
+                ticker_data = {**ticker, "technical": technical, "sentiment": sentiment_summary}
+                recommendation = run_ticker_recommendation(claude, ticker_data, macro_signals)
+                if recommendation is None:
+                    logger.error(f"{symbol}: unparseable Claude response — nothing persisted")
+                    failed_symbols.append(symbol)
+                    continue
 
-        action = recommendation.get("action", "?")
-        confidence = recommendation.get("confidence", 0)
-        logger.info(f"{symbol}: {action} (confidence={confidence:.0%})")
+                action = recommendation.get("action", "?")
+                confidence = recommendation.get("confidence", 0)
+                logger.info(f"{symbol}: {action} (confidence={confidence:.0%})")
 
-        # Find most relevant macro signal for this ticker's sector
-        relevant_macro_id = None
-        for i, signal in enumerate(macro_signals):
-            if ticker.get("sector") in (signal.get("affected_sectors") or []):
-                relevant_macro_id = macro_signal_ids[i]
-                break
+                # Find most relevant macro signal for this ticker's sector
+                relevant_macro_id = None
+                for i, signal in enumerate(macro_signals):
+                    if ticker.get("sector") in (signal.get("affected_sectors") or []):
+                        relevant_macro_id = macro_signal_ids[i]
+                        break
 
-        conn = get_connection(cfg)
-        try:
-            write_recommendation(
-                conn, ticker["id"], recommendation, technical,
-                sentiment_summary, relevant_macro_id, dry_run=dry_run,
-            )
-            if posts_for_ticker:
-                write_reddit_mentions(conn, ticker["id"], posts_for_ticker, dry_run=dry_run)
-        finally:
-            conn.close()
+                conn.ping(reconnect=True)
+                write_recommendation(
+                    conn, ticker["id"], recommendation, technical,
+                    sentiment_summary, relevant_macro_id, dry_run=dry_run,
+                )
+                if posts_for_ticker:
+                    write_reddit_mentions(conn, ticker["id"], posts_for_ticker, dry_run=dry_run)
 
-        all_recommendations.append({"symbol": symbol, **recommendation})
+                all_recommendations.append({"symbol": symbol, **recommendation})
+            except Exception:
+                logger.exception(f"{symbol}: processing failed — continuing with remaining tickers")
+                failed_symbols.append(symbol)
 
-    # ── 7. Write Reddit mentions for posts not matched to any known ticker ──
-    mentioned_post_ids = {p["id"] for posts in ticker_mentions.values() for p in posts}
-    unmatched_posts = [p for p in reddit_posts if p["id"] not in mentioned_post_ids]
-    if unmatched_posts:
-        conn = get_connection(cfg)
-        try:
+        # ── 7. Write Reddit mentions for posts not matched to any known ticker ──
+        mentioned_post_ids = {p["id"] for posts in ticker_mentions.values() for p in posts}
+        unmatched_posts = [p for p in reddit_posts if p["id"] not in mentioned_post_ids]
+        if unmatched_posts:
+            conn.ping(reconnect=True)
             write_reddit_mentions(conn, None, unmatched_posts, dry_run=dry_run)
-        finally:
-            conn.close()
 
-    # ── 8. Detect trending unknown tickers ──────────────────────────────────
-    trending_unknown = find_trending_unknown(reddit_posts, known_symbols)
-    if trending_unknown:
-        logger.info(
-            f"Trending tickers not in watchlist/holdings "
-            f"(consider adding): {[t['symbol'] for t in trending_unknown]}"
-        )
+        # ── 8. Detect trending unknown tickers ───────────────────────────────
+        trending_unknown = find_trending_unknown(reddit_posts, known_symbols)
+        if trending_unknown:
+            logger.info(
+                f"Trending tickers not in watchlist/holdings "
+                f"(consider adding): {[t['symbol'] for t in trending_unknown]}"
+            )
 
-    # ── 9. Daily summary (1 Claude call) ────────────────────────────────────
-    logger.info("Generating daily summary...")
-    top_posts = sorted(reddit_posts, key=lambda x: x["score"], reverse=True)[:10]
-    analysis_data = {
-        "tickers_analyzed": [t["symbol"] for t in tickers],
-        "macro_signals": macro_signals,
-        "recommendations": all_recommendations,
-        "top_reddit_posts": [{"title": p["title"], "score": p["score"]} for p in top_posts],
-        "trending_suggestions": trending_unknown,
-    }
-    summary = run_daily_summary(claude, analysis_data)
+        # ── 9. Daily summary (1 Claude call) ─────────────────────────────────
+        logger.info("Generating daily summary...")
+        top_posts = sorted(reddit_posts, key=lambda x: x["score"], reverse=True)[:10]
+        analysis_data = {
+            "tickers_analyzed": [t["symbol"] for t in tickers],
+            "macro_signals": macro_signals,
+            "recommendations": all_recommendations,
+            "top_reddit_posts": [{"title": p["title"], "score": p["score"]} for p in top_posts],
+            "trending_suggestions": trending_unknown,
+        }
+        summary = run_daily_summary(claude, analysis_data)
 
-    conn = get_connection(cfg)
-    try:
+        conn.ping(reconnect=True)
         write_daily_summary(conn, summary, len(reddit_posts), dry_run=dry_run)
     finally:
         conn.close()
 
     logger.info(
-        f"Run complete. overall_sentiment={summary.get('overall_sentiment')} "
+        f"Run complete. tickers_ok={len(all_recommendations)} "
+        f"tickers_failed={len(failed_symbols)}"
+        f"{f' (failed: {failed_symbols})' if failed_symbols else ''} "
+        f"overall_sentiment={summary.get('overall_sentiment')} "
         f"hot_tickers={summary.get('hot_tickers')}"
     )
     if trending_unknown:
@@ -163,6 +168,10 @@ def main(dry_run: bool = False) -> None:
             f"Trending suggestions for watchlist: "
             f"{[t['symbol'] for t in trending_unknown]}"
         )
+
+    if tickers and not all_recommendations:
+        logger.error("Every ticker failed this run — exiting non-zero")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

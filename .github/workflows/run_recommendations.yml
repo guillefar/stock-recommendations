@@ -32,3 +32,17 @@ jobs:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
           REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
+
+      # Grades matured recommendations against realized prices. Independent of
+      # today's run, so it executes even if the step above failed.
+      - name: Evaluate recommendation outcomes
+        if: ${{ !cancelled() }}
+        run: python -m src.evaluate_outcomes
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          # Unused by the evaluator, but load_config() requires it to be set.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

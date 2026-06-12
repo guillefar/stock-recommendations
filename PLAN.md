@@ -6,15 +6,26 @@ Living document. Update as work progresses. See [PROJECT_SUMMARY.md](PROJECT_SUM
 
 ## Current state
 
-Pipeline is wired end-to-end and all modules exist. As of 2026-06-12 everything through session 02 is **merged to `main`** (`2197dc1`): decisive-recommendation prompt, outcome tracking, PRAW Reddit collector, daily-digest dashboard, 2×/day cron, `datetime.utcnow()` cleanup. The pipeline has **not** yet had a real (non-dry-run) execution with the new prompt, so the DB still holds only old all-HOLD/WATCH recommendations.
+Pipeline is wired end-to-end and all modules exist. As of 2026-06-12 everything through session 02 is **merged to `main`** (`2197dc1`): decisive-recommendation prompt, outcome tracking, PRAW Reddit collector, daily-digest dashboard, 2×/day cron, `datetime.utcnow()` cleanup. Session 04 implemented all code items of **Wave 1** on branch `fix/wave-1-correctness` (see Done below). The pipeline has **not** yet had a real (non-dry-run) execution with the new prompt, so the DB still holds only old all-HOLD/WATCH recommendations.
 
-**Known data caveat:** the sibling `price_snapshots` table is stale — last row is 2026-05-22, while recommendations run through today. Outcome grading therefore finds zero matured candidates until the `stock-snapshots` collector resumes. Not fixable from this repo (read-only).
+**Known data caveat:** the sibling `price_snapshots` table is stale — last row is 2026-05-22, while recommendations run through today. **Correction (session 04):** old recommendations *did* mature against the existing snapshots — a `--dry-run` of the evaluator grades **693 candidates at the 7d horizon** (0 at 30d). The first scheduled run of `evaluate_outcomes` will therefore backfill ~693 outcome rows, all under the old always-HOLD/WATCH prompt. New recommendations still can't be graded until the `stock-snapshots` collector resumes (not fixable from this repo, read-only).
 
 **Reddit is dark:** the PRAW collector is committed but has no credentials yet, so every recommendation currently runs with zero Reddit sentiment (technicals + macro only).
 
 ## In progress
 
 - _(none)_
+
+## Done (session 04 — 2026-06-12, Wave 1)
+
+On branch **`fix/wave-1-correctness`** (off `main` @ `241caa5`):
+
+- **Per-run dedup (2×/day no-op bug fixed).** [src/persistence/writers.py](src/persistence/writers.py): `write_recommendation` now skips only if the ticker has a row within the last `DEDUP_WINDOW_HOURS = 4` hours (was: same calendar day). The 17:00 ART run now writes its own rows; same-slot workflow retries are still deduped.
+- **Parse failures are never persisted.** `analyze_ticker` in [src/analysis/claude_client.py](src/analysis/claude_client.py) returns `None` on unparseable JSON instead of the old `HOLD/0.5/"Error al parsear respuesta"` fallback; main logs an error, counts the ticker as failed, and writes nothing.
+- **Per-ticker error isolation.** The per-ticker body in [src/main.py](src/main.py) is wrapped in try/except (log + continue). The run-complete line reports `tickers_ok=… tickers_failed=… (failed: […])`; the process exits non-zero only when *every* ticker failed. Missing technical data also counts as a failure now.
+- **`evaluate_outcomes` scheduled.** Second workflow step in [.github/workflows/run_recommendations.yml](.github/workflows/run_recommendations.yml), with `if: ${{ !cancelled() }}` so grading runs even if the main step fails (it's independent). Needs `ANTHROPIC_API_KEY` in env only because `load_config()` requires it.
+- **Fold-in: single DB connection per run.** main now opens one connection for the whole run (was 2+2N) with `conn.ping(reconnect=True)` before each write phase to survive idle-out during Claude/yfinance calls.
+- **Validated:** `python -m src.main --dry-run` full pass (63 tickers ok / 0 failed, no writes); `python -m src.evaluate_outcomes --dry-run` (693 graded at 7d — see Current state); `tests/test_outcomes.py` 3/3 pass (pytest installed into the local venv only; adding it to requirements stays Wave 3).
 
 ## Done (session 03 — 2026-06-12)
 
@@ -52,10 +63,10 @@ Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**;
 
 ### Wave 1 — Correctness & unblocking
 
-- [ ] **Per-run recommendations (fixes the 2×/day no-op bug).** [src/persistence/writers.py:98-109](src/persistence/writers.py#L98-L109) skips any ticker that already has a row that calendar day, so the 17:00 ART run pays all Claude calls and writes nothing. Replace the per-day guard with a per-run one (skip only if a row for the ticker exists within the last ~4h — protects same-slot retries, allows the second daily row). Note: the old "UNIQUE on DATE(generated_at)" idempotency idea is **obsolete** under two-rows/day; if hardening is wanted, key on (ticker_id, date, AM/PM slot).
-- [ ] **Never persist parse-failure fallbacks.** [src/analysis/claude_client.py:132-135](src/analysis/claude_client.py#L132-L135) returns `HOLD/0.5/"Error al parsear respuesta"` on bad JSON and main writes it as a real recommendation (and outcomes later grade it). Make the failure explicit (return None / raise), skip the DB write, log loudly, and count failures in the run-complete log line.
-- [ ] **Per-ticker error isolation.** Wrap the per-ticker body in [src/main.py](src/main.py) (technicals + Claude call + writes) in try/except → log + continue, so one bad ticker or one API error can't abort the whole unattended run. Exit non-zero if *all* tickers failed.
-- [ ] **Schedule `evaluate_outcomes`.** It currently only runs manually. Add it as a step after `python -m src.main` in [.github/workflows/run_recommendations.yml](.github/workflows/run_recommendations.yml) (idempotent, grades 0 rows until `price_snapshots` resumes — harmless).
+- [x] **Per-run recommendations (fixes the 2×/day no-op bug)** — done session 04: 4h dedup window (`DEDUP_WINDOW_HOURS`) in [src/persistence/writers.py](src/persistence/writers.py).
+- [x] **Never persist parse-failure fallbacks** — done session 04: `analyze_ticker` returns `None`, main skips + counts the failure.
+- [x] **Per-ticker error isolation** — done session 04: try/except per ticker in [src/main.py](src/main.py), ok/failed counts in the final log line, exit non-zero only if all failed.
+- [x] **Schedule `evaluate_outcomes`** — done session 04: second workflow step. Note it will backfill ~693 7d outcomes from old recs on first real run (snapshots through 2026-05-22 matured them).
 - [ ] **USER: Provide Reddit credentials.** Create a "script" app at https://www.reddit.com/prefs/apps; put `REDDIT_CLIENT_ID/SECRET/USER_AGENT` in local `.env` AND GitHub Actions secrets. Until then every run has zero Reddit sentiment.
 - [ ] **First real (non-dry-run) execution** with the decisive prompt (manual `workflow_dispatch` or local), so the DB finally gets BUY/SELL rows.
 - [x] **Merge `chore/cron-2x-daily-and-datetime-cleanup` to `main`** — done 2026-06-12 (fast-forward to `2197dc1`, pushed).
@@ -85,7 +96,7 @@ Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**;
 
 ### Fold-in cleanups (no scheduled wave — grab when touching the area)
 
-- [ ] One DB connection per run instead of `2 + 2N` opens ([src/main.py](src/main.py)) — natural fit during Wave 1's main-loop edit.
+- [x] One DB connection per run instead of `2 + 2N` opens ([src/main.py](src/main.py)) — done session 04 with Wave 1's main-loop edit.
 - [ ] Refactor [src/db.py:20](src/db.py#L20) `get_active_tickers` to a UNION of two INNER JOINs.
 - [ ] Macro→ticker matching ([src/main.py:102-106](src/main.py#L102-L106)): prefer signals where `direction[sector]` is non-NEUTRAL over "first sector match wins".
 - [x] ~~UNIQUE-key idempotency on DATE(generated_at)~~ — superseded by the two-recs/day decision (see Wave 1).
