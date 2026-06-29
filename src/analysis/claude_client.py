@@ -10,6 +10,16 @@ logger = logging.getLogger(__name__)
 
 MODEL = "claude-haiku-4-5-20251001"
 
+# Haiku 4.5 list pricing, USD per million tokens (see /claude-api → models table).
+# cache_control was removed in session 08 (min cacheable prefix is 4096 tokens),
+# so cache_write/cache_read should stay at 0 — tracked anyway to confirm that.
+_PRICE_PER_MTOK = {
+    "input": 1.00,
+    "output": 5.00,
+    "cache_write": 1.25,  # 1.25x input
+    "cache_read": 0.10,   # 0.1x input
+}
+
 _MACRO_SYSTEM = (
     "Eres analista financiero. Identificas temas macro/sectoriales desde headlines "
     "y determinas qué sectores se ven afectados positiva o negativamente. "
@@ -34,6 +44,32 @@ _SUMMARY_SYSTEM = (
 class ClaudeClient:
     def __init__(self, cfg: Config):
         self._client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
+        # Token usage accumulated across the 2+N calls of a run (cost telemetry).
+        self._usage = {"calls": 0, "input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
+
+    def _record_usage(self, response) -> None:
+        u = getattr(response, "usage", None)
+        if u is None:
+            return
+        self._usage["calls"] += 1
+        self._usage["input"] += getattr(u, "input_tokens", 0) or 0
+        self._usage["output"] += getattr(u, "output_tokens", 0) or 0
+        self._usage["cache_write"] += getattr(u, "cache_creation_input_tokens", 0) or 0
+        self._usage["cache_read"] += getattr(u, "cache_read_input_tokens", 0) or 0
+
+    def estimated_cost_usd(self) -> float:
+        return sum(
+            self._usage[k] * _PRICE_PER_MTOK[k] for k in _PRICE_PER_MTOK
+        ) / 1_000_000
+
+    def log_usage(self) -> None:
+        u = self._usage
+        logger.info(
+            f"Claude usage: {u['calls']} calls — "
+            f"input={u['input']} output={u['output']} "
+            f"cache_write={u['cache_write']} cache_read={u['cache_read']} tokens; "
+            f"estimated cost ${self.estimated_cost_usd():.4f} ({MODEL})"
+        )
 
     def analyze_macro(self, headlines: list[dict]) -> list[dict]:
         headline_text = "\n".join(
@@ -42,23 +78,81 @@ class ClaudeClient:
         user_msg = f"""Headlines del día:
 {headline_text}
 
-Identifica 0-5 temas macro relevantes. Responde SOLO con un array JSON (puede ser []).
-Para cada tema usa exactamente este schema:
-{{
-  "theme": "...",
-  "affected_sectors": ["Energy", "Utilities"],
-  "direction": {{"Energy": "POSITIVE", "Airlines": "NEGATIVE"}},
-  "summary": "...",
-  "source_headlines": ["..."]
-}}"""
+Identifica 0-5 temas macro relevantes (el array `themes` puede quedar vacío).
+Para cada tema:
+- `affected_sectors`: sectores afectados.
+- `direction`: un item por sector con su sentimiento (POSITIVE/NEGATIVE/NEUTRAL).
+- `source_headlines`: los titulares concretos que respaldan el tema."""
 
         response = self._client.messages.create(
             model=MODEL,
             max_tokens=2048,
             system=_MACRO_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
+            output_config={
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "themes": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "theme": {"type": "string"},
+                                        "affected_sectors": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
+                                        # A free-form {sector: sentiment} map can't be
+                                        # expressed under additionalProperties:false, so
+                                        # the model returns a list and we fold it back
+                                        # into the stored map below.
+                                        "direction": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "sector": {"type": "string"},
+                                                    "sentiment": {
+                                                        "type": "string",
+                                                        "enum": ["POSITIVE", "NEGATIVE", "NEUTRAL"],
+                                                    },
+                                                },
+                                                "required": ["sector", "sentiment"],
+                                                "additionalProperties": False,
+                                            },
+                                        },
+                                        "summary": {"type": "string"},
+                                        "source_headlines": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
+                                    },
+                                    "required": [
+                                        "theme", "affected_sectors", "direction",
+                                        "summary", "source_headlines",
+                                    ],
+                                    "additionalProperties": False,
+                                },
+                            }
+                        },
+                        "required": ["themes"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
         )
-        return _parse_json(response.content[0].text, default=[])
+        self._record_usage(response)
+        result = _structured_json(response, default={"themes": []})
+        themes = result.get("themes", []) if result else []
+        for theme in themes:
+            # Persist `direction` as the original {sector: sentiment} map.
+            theme["direction"] = {
+                d["sector"]: d["sentiment"] for d in theme.get("direction", [])
+            }
+        return themes
 
     def analyze_ticker(self, ticker_data: dict, macro_signals: list[dict]) -> dict | None:
         tech = ticker_data.get("technical", {})
@@ -169,6 +263,7 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
                 }
             },
         )
+        self._record_usage(response)
         # Structured output guarantees schema-valid JSON. A refusal or truncation
         # still surfaces as None so the caller skips persistence (no fake HOLD).
         result = _structured_json(response, default=None)
@@ -207,21 +302,38 @@ Recomendaciones generadas:
 
 Tickers trending (no en watchlist/holdings): {trending_text}
 
-Responde SOLO con este JSON (sin texto adicional):
-{{
-  "summary": "resumen markdown de 3-5 párrafos",
-  "hot_tickers": ["NVDA", "TSLA"],
-  "overall_sentiment": "BULLISH|BEARISH|MIXED|NEUTRAL"
-}}"""
+Genera:
+- `summary`: resumen markdown de 3-5 párrafos.
+- `hot_tickers`: los tickers más relevantes del día.
+- `overall_sentiment`: el sentimiento general del mercado."""
 
         response = self._client.messages.create(
             model=MODEL,
             max_tokens=1024,
             system=_SUMMARY_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
+            output_config={
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "summary": {"type": "string"},
+                            "hot_tickers": {"type": "array", "items": {"type": "string"}},
+                            "overall_sentiment": {
+                                "type": "string",
+                                "enum": ["BULLISH", "BEARISH", "MIXED", "NEUTRAL"],
+                            },
+                        },
+                        "required": ["summary", "hot_tickers", "overall_sentiment"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
         )
-        return _parse_json(
-            response.content[0].text,
+        self._record_usage(response)
+        return _structured_json(
+            response,
             default={"summary": "Error generando resumen.", "hot_tickers": [], "overall_sentiment": "NEUTRAL"},
         )
 
@@ -247,18 +359,6 @@ def _structured_json(response, default):
         return json.loads(text)
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse structured JSON from Claude: {e}\nText: {text[:300]}")
-        return default
-
-
-def _parse_json(text: str, default):
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse JSON from Claude: {e}\nText: {text[:300]}")
         return default
 
 

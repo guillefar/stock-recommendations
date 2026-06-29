@@ -1392,7 +1392,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT\n  DATE(r1.generated_at)            AS day,\n  t.symbol,\n  TIME(r1.generated_at)            AS `run 1`,\n  r1.action                        AS `action 1`,\n  TIME(r2.generated_at)            AS `run 2`,\n  r2.action                        AS `action 2`,\n  ROUND(r1.confidence * 100, 0)    AS `conf 1 %`,\n  ROUND(r2.confidence * 100, 0)    AS `conf 2 %`\nFROM recommendations r1\nJOIN recommendations r2\n  ON r2.ticker_id = r1.ticker_id\n AND DATE(r2.generated_at) = DATE(r1.generated_at)\n AND r2.generated_at > r1.generated_at\n AND r2.action <> r1.action\nJOIN tickers t ON t.id = r1.ticker_id\nWHERE $__timeFilter(r1.generated_at)\nORDER BY day DESC, t.symbol"
+                      "rawSql": "SELECT\n  DATE(r2.generated_at)            AS day,\n  t.symbol,\n  DATE(r1.generated_at)            AS `prev day`,\n  r1.action                        AS `prev action`,\n  r2.action                        AS `new action`,\n  ROUND(r1.confidence * 100, 0)    AS `prev conf %`,\n  ROUND(r2.confidence * 100, 0)    AS `new conf %`\nFROM recommendations r2\nJOIN recommendations r1\n  ON r1.ticker_id = r2.ticker_id\n AND r1.generated_at = (\n   SELECT MAX(r3.generated_at) FROM recommendations r3\n   WHERE r3.ticker_id = r2.ticker_id AND r3.generated_at < r2.generated_at\n )\n AND r1.action <> r2.action\nJOIN tickers t ON t.id = r2.ticker_id\nWHERE $__timeFilter(r2.generated_at)\nORDER BY day DESC, t.symbol"
                     },
                     "version": "v0"
                   },
@@ -1404,10 +1404,10 @@
             "transformations": []
           }
         },
-        "description": "Tickers where two runs on the same day disagreed on the action (morning vs afternoon). Empty until a day accumulates two runs with different calls — each row is the model changing its mind intraday.",
+        "description": "Tickers whose action flipped between consecutive runs (each row joins a run to its immediately-preceding run for the same ticker). Under the single daily cron these are day-over-day flips — the model changing its call vs the prior trading day.",
         "id": 9,
         "links": [],
-        "title": "Same-day run disagreements (D1)",
+        "title": "Action flips vs previous run (D1)",
         "vizConfig": {
           "group": "table",
           "kind": "VizConfig",
@@ -1439,7 +1439,7 @@
                 {
                   "matcher": {
                     "id": "byName",
-                    "options": "action 1"
+                    "options": "prev action"
                   },
                   "properties": [
                     {
@@ -1507,7 +1507,7 @@
                 {
                   "matcher": {
                     "id": "byName",
-                    "options": "action 2"
+                    "options": "new action"
                   },
                   "properties": [
                     {

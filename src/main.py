@@ -180,6 +180,7 @@ def main(dry_run: bool = False) -> None:
         f"overall_sentiment={summary.get('overall_sentiment')} "
         f"hot_tickers={summary.get('hot_tickers')}"
     )
+    claude.log_usage()
     if trending_unknown:
         logger.info(
             f"Trending suggestions for watchlist: "
