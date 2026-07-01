@@ -52,12 +52,18 @@ It never writes to `stock-snapshots` tables.
 
 ## Grafana dashboards
 
-Two dashboards live in [grafana/](grafana/), authored in **schema v2**
+Three dashboards live in [grafana/](grafana/), authored in **schema v2**
 (`elements` / `layout`) for Grafana 13.1.x:
 
 - `daily_digest_dashboard.json` — the daily digest (summary, recommendations,
   macro signals, outcomes, hit-rate and calibration panels).
 - `recommendations_dashboard.json` — recommendation/confidence history.
+- `track_record_dashboard.json` — model accuracy over time: a scorecard header
+  (overall hit rate, decisiveness, sample size), a **weekly hit-rate trend**
+  (when the model was right, by horizon), and **hit rate by sector** and **by
+  RSI band** (what correct calls share). Hit rate = CORRECT ÷ (CORRECT+INCORRECT),
+  so neutral calls are excluded; all panels default to the 7-day horizon and
+  respect the time picker.
 
 To import: **Dashboards → New → Import**, paste the JSON, and select your MySQL
 datasource when prompted. Date navigation uses the **time-range picker** (the
