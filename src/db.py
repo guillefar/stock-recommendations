@@ -38,3 +38,23 @@ def get_known_symbols(conn: pymysql.Connection) -> set[str]:
     with conn.cursor() as cur:
         cur.execute("SELECT symbol FROM tickers")
         return {row["symbol"] for row in cur.fetchall()}
+
+
+def get_latest_actions(conn: pymysql.Connection) -> dict[int, str]:
+    """Most recent stored action per ticker — the previous run's view.
+
+    Must be read before this run's recommendations are written, so a flip
+    means "changed vs the immediately-preceding run" (same semantics as the
+    digest dashboard's action-flips panel).
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT r.ticker_id, r.action
+            FROM recommendations r
+            JOIN (
+                SELECT ticker_id, MAX(generated_at) AS latest_at
+                FROM recommendations
+                GROUP BY ticker_id
+            ) m ON m.ticker_id = r.ticker_id AND m.latest_at = r.generated_at
+        """)
+        return {row["ticker_id"]: row["action"] for row in cur.fetchall()}

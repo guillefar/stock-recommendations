@@ -14,7 +14,7 @@ from src.collectors.news import fetch_macro_headlines
 from src.collectors.prices import fetch_next_earnings, fetch_prices_and_indicators, fetch_ticker_news
 from src.collectors.reddit import extract_ticker_mentions, fetch_reddit_posts, find_trending_unknown
 from src.config import load_config
-from src.db import get_active_tickers, get_connection, get_known_symbols
+from src.db import get_active_tickers, get_connection, get_known_symbols, get_latest_actions
 from src.persistence.writers import (
     write_daily_summary,
     write_macro_signals,
@@ -137,6 +137,12 @@ def main(dry_run: bool = False) -> None:
                 logger.exception("Batch recommendation call failed — no recommendations this run")
 
         # ── 6c. Persist recommendations ───────────────────────────────────────
+        # Previous actions must be read before this run's rows land, so a flip
+        # is "vs the immediately-preceding run" (S17 — surfaced in the summary).
+        conn.ping(reconnect=True)
+        previous_actions = get_latest_actions(conn)
+        action_flips = []
+
         for ticker_data in prepared:
             symbol = ticker_data["symbol"]
             try:
@@ -167,6 +173,12 @@ def main(dry_run: bool = False) -> None:
                     write_reddit_mentions(conn, ticker_data["id"], posts_for_ticker, dry_run=dry_run)
 
                 all_recommendations.append({"symbol": symbol, **recommendation})
+
+                prev_action = previous_actions.get(ticker_data["id"])
+                if prev_action and prev_action != action:
+                    action_flips.append(
+                        {"symbol": symbol, "prev_action": prev_action, "new_action": action}
+                    )
             except Exception:
                 logger.exception(f"{symbol}: persistence failed — continuing with remaining tickers")
                 failed_symbols.append(symbol)
@@ -188,11 +200,17 @@ def main(dry_run: bool = False) -> None:
 
         # ── 9. Daily summary (1 Claude call) ─────────────────────────────────
         logger.info("Generating daily summary...")
+        if action_flips:
+            logger.info(
+                f"Action flips vs previous run: "
+                f"{[(f['symbol'], f['prev_action'], f['new_action']) for f in action_flips]}"
+            )
         top_posts = sorted(reddit_posts, key=lambda x: x["score"], reverse=True)[:10]
         analysis_data = {
             "tickers_analyzed": [t["symbol"] for t in tickers],
             "macro_signals": macro_signals,
             "recommendations": all_recommendations,
+            "action_flips": action_flips,
             "top_reddit_posts": [{"title": p["title"], "score": p["score"]} for p in top_posts],
             "trending_suggestions": trending_unknown,
         }

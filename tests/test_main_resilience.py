@@ -21,6 +21,7 @@ def _run_main(monkeypatch, macro_raises: bool, summary_result):
     )
     monkeypatch.setattr(main_mod, "get_active_tickers", lambda conn: [TICKER])
     monkeypatch.setattr(main_mod, "get_known_symbols", lambda conn: {"AAPL"})
+    monkeypatch.setattr(main_mod, "get_latest_actions", lambda conn: {})
     monkeypatch.setattr(main_mod, "fetch_reddit_posts", lambda cfg: [])
     monkeypatch.setattr(main_mod, "fetch_macro_headlines", lambda: [{"title": "x"}])
     monkeypatch.setattr(main_mod, "fetch_prices_and_indicators", lambda s: {"price": 10.0})

@@ -378,6 +378,7 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
         tickers = analysis_data.get("tickers_analyzed", [])
         macro_signals = analysis_data.get("macro_signals", [])
         recommendations = analysis_data.get("recommendations", [])
+        action_flips = analysis_data.get("action_flips", [])
         top_posts = analysis_data.get("top_reddit_posts", [])
         trending = analysis_data.get("trending_suggestions", [])
 
@@ -385,6 +386,9 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
             f"- {r['symbol']}: {r['action']} (confianza: {r.get('confidence', 0):.0%}) — {r.get('reasoning', '')}"
             for r in recommendations
         ) or "(ninguna)"
+        flips_text = "\n".join(
+            f"- {f['symbol']}: {f['prev_action']} → {f['new_action']}" for f in action_flips
+        ) or "(ninguno)"
         macro_text = "\n".join(f"- {s['theme']}: {s['summary']}" for s in macro_signals) or "(ninguna)"
         posts_text = "\n".join(f"- \"{p['title']}\" (score: {p['score']})" for p in top_posts[:10]) or "(ninguno)"
         trending_text = ", ".join(t["symbol"] for t in trending) if trending else "(ninguno)"
@@ -400,10 +404,13 @@ Posts más relevantes de Reddit:
 Recomendaciones generadas:
 {recs_text}
 
+Cambios de recomendación vs la corrida anterior:
+{flips_text}
+
 Tickers trending (no en watchlist/holdings): {trending_text}
 
 Genera:
-- `summary`: resumen markdown de 3-5 párrafos.
+- `summary`: resumen markdown de 3-5 párrafos. Si hubo cambios de recomendación, destácalos explícitamente (qué cambió y por qué es relevante).
 - `hot_tickers`: los tickers más relevantes del día.
 - `overall_sentiment`: el sentimiento general del mercado."""
 

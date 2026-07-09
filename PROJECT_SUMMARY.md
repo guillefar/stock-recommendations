@@ -58,10 +58,10 @@ src/
 6. **Per-ticker, in three phases:**
    - **6a — collect:** technicals from yfinance (+ upsert today's price into `price_checks` before any Claude involvement), Reddit sentiment summary, news headlines, next earnings date. Failures are isolated per ticker.
    - **6b — one Message Batches call** with all N per-ticker requests (50% token discount; polled up to 45 min, then canceled).
-   - **6c — persist:** each parsed recommendation → `recommendations` (+ `reddit_mentions` for matched posts). Unparseable/errored entries count as failures; nothing is persisted for them.
+   - **6c — persist:** each parsed recommendation → `recommendations` (+ `reddit_mentions` for matched posts). Unparseable/errored entries count as failures; nothing is persisted for them. Action flips vs each ticker's previous stored recommendation are collected here (`get_latest_actions` is read just before this phase, S17).
 7. Write Reddit mentions for posts with no matched ticker (NULL-ticker rows are deduped by a pre-SELECT, since the UNIQUE key can't compare NULLs).
 8. Detect trending unknown tickers (filter: score > 100, mentions > 3).
-9. **Claude call #2** — daily summary → `daily_market_summary`. On failure the summary returns `None` and nothing is written (never an error placeholder).
+9. **Claude call #2** — daily summary → `daily_market_summary`; the prompt includes the run's action flips ("Cambios de recomendación vs la corrida anterior") so the summary calls them out. On failure the summary returns `None` and nothing is written (never an error placeholder).
 
 Total Claude API interactions per run: 2 plain calls (macro, summary) + 1 batch of N ticker requests. Usage and estimated cost (batch tokens at the 50% rate) are logged at run end.
 
