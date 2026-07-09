@@ -41,7 +41,7 @@ Required env vars: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`,
   outcomes. GitHub cron is UTC and ignores DST (fires 11:00 local in CET winter).
   Needs the env vars above as repository secrets.
 - [.github/workflows/tests.yml](.github/workflows/tests.yml) — runs `pytest` on
-  every push and PR.
+  pushes to `main` and on every PR.
 
 ## Database
 
@@ -52,9 +52,12 @@ It never writes to `stock-snapshots` tables.
 
 ## Grafana dashboards
 
-Three dashboards live in [grafana/](grafana/), authored in **schema v2**
+Four dashboards live in [grafana/](grafana/), authored in **schema v2**
 (`elements` / `layout`) for Grafana 13.1.x:
 
+- `predictions_dashboard.json` — the **simplified view**: the latest call per
+  ticker (action, confidence, entry price, one-line reasoning, and that
+  ticker's own historical hit rate) plus the weekly hit-rate trend.
 - `daily_digest_dashboard.json` — the daily digest (summary, recommendations,
   macro signals, outcomes, hit-rate and calibration panels).
 - `recommendations_dashboard.json` — recommendation/confidence history.
