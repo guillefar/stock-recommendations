@@ -10,9 +10,18 @@ on:
     - cron: '0 10 * * 1-5'   # 12:00 CEST (Madrid/Berlin), lun-vie
   workflow_dispatch:          # permite ejecución manual
 
+# One run at a time; a queued run waits instead of overlapping (the 4h dedup
+# protects recommendations but not the daily-summary upsert).
+concurrency:
+  group: stock-recs
+  cancel-in-progress: false
+
 jobs:
   run:
     runs-on: ubuntu-latest
+    # Generous ceiling: the per-ticker Message Batch usually ends in minutes
+    # but src.main polls it up to 45 min before canceling.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -48,5 +57,3 @@ jobs:
           DB_PASS: ${{ secrets.DB_PASS }}
           DB_NAME: ${{ secrets.DB_NAME }}
           DB_PORT: ${{ secrets.DB_PORT }}
-          # Unused by the evaluator, but load_config() requires it to be set.
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
