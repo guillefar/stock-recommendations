@@ -54,10 +54,30 @@ def write_reddit_mentions(
     posts: list[dict],
     dry_run: bool = False,
 ) -> None:
-    """Inserts reddit mentions using INSERT IGNORE for idempotency."""
+    """Inserts reddit mentions using INSERT IGNORE for idempotency.
+
+    For unmatched posts (ticker_id=None) the UNIQUE key can't dedup — MySQL
+    treats every NULL as distinct — so existing NULL-ticker post_ids are
+    pre-selected and skipped instead.
+    """
     if dry_run:
         logger.info(f"[dry-run] Would insert {len(posts)} reddit mentions for ticker_id={ticker_id}")
         return
+
+    if ticker_id is None and posts:
+        with conn.cursor() as cur:
+            placeholders = ", ".join(["%s"] * len(posts))
+            cur.execute(
+                f"""
+                SELECT post_id FROM reddit_mentions
+                WHERE ticker_id IS NULL AND post_id IN ({placeholders})
+                """,
+                [p["id"] for p in posts],
+            )
+            existing = {row["post_id"] for row in cur.fetchall()}
+        if existing:
+            posts = [p for p in posts if p["id"] not in existing]
+            logger.info(f"Skipping {len(existing)} already-stored unmatched reddit posts")
 
     with conn.cursor() as cur:
         for post in posts:

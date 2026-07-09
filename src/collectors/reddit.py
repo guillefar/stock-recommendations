@@ -3,7 +3,6 @@ import re
 from datetime import datetime, timezone
 
 import praw
-import prawcore
 
 from src.config import Config
 
@@ -52,7 +51,7 @@ def fetch_reddit_posts(cfg: Config) -> list[dict]:
         )
         reddit.read_only = True
         hot = list(reddit.subreddit(SUBREDDIT).hot(limit=FETCH_LIMIT))
-    except (prawcore.PrawcoreException, Exception) as e:
+    except Exception as e:
         logger.warning(f"Reddit fetch failed: {e} — continuing without Reddit data")
         return []
 

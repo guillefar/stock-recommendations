@@ -8,7 +8,7 @@ load_dotenv()
 
 from src.analysis.claude_client import ClaudeClient
 from src.analysis.macro import run_macro_analysis
-from src.analysis.recommendation import run_ticker_recommendation
+from src.analysis.recommendation import run_ticker_recommendations_batch
 from src.analysis.summary import run_daily_summary
 from src.collectors.news import fetch_macro_headlines
 from src.collectors.prices import fetch_next_earnings, fetch_prices_and_indicators, fetch_ticker_news
@@ -57,24 +57,34 @@ def main(dry_run: bool = False) -> None:
         logger.info(f"Got {len(headlines)} macro headlines")
 
         # ── 4. Macro analysis (1 Claude call) ───────────────────────────────
+        # A Claude failure here must not kill the run: the per-ticker loop is
+        # what records price_checks, and the prompt already handles "no macro".
         logger.info("Running macro analysis with Claude...")
-        macro_signals = run_macro_analysis(claude, headlines)
+        try:
+            macro_signals = run_macro_analysis(claude, headlines)
+        except Exception:
+            logger.exception("Macro analysis failed — continuing without macro signals")
+            macro_signals = []
 
-        conn.ping(reconnect=True)
-        macro_signal_ids = write_macro_signals(conn, macro_signals, dry_run=dry_run)
+        macro_signal_ids = []
+        if macro_signals:
+            conn.ping(reconnect=True)
+            macro_signal_ids = write_macro_signals(conn, macro_signals, dry_run=dry_run)
 
         # ── 5. Extract Reddit ticker mentions ────────────────────────────────
         ticker_mentions = extract_ticker_mentions(reddit_posts, known_symbols)
 
-        # ── 6. Per-ticker analysis ───────────────────────────────────────────
+        # ── 6a. Per-ticker data collection ───────────────────────────────────
         # Failures are isolated per ticker: log, count, and move on, so one bad
-        # ticker or API hiccup can't abort the unattended run.
+        # ticker can't abort the unattended run. The price check is written here
+        # (before any Claude involvement) so a Claude outage can't lose prices.
+        prepared = []
         all_recommendations = []
         failed_symbols = []
 
         for ticker in tickers:
             symbol = ticker["symbol"]
-            logger.info(f"Processing {symbol}...")
+            logger.info(f"Collecting data for {symbol}...")
 
             try:
                 technical = fetch_prices_and_indicators(symbol)
@@ -104,16 +114,35 @@ def main(dry_run: bool = False) -> None:
                 news = fetch_ticker_news(symbol)[:5]
                 next_earnings = fetch_next_earnings(symbol)
 
-                ticker_data = {
+                prepared.append({
                     **ticker,
                     "technical": technical,
                     "sentiment": sentiment_summary,
                     "news": news,
                     "next_earnings": next_earnings,
-                }
-                recommendation = run_ticker_recommendation(claude, ticker_data, macro_signals)
+                })
+            except Exception:
+                logger.exception(f"{symbol}: data collection failed — continuing with remaining tickers")
+                failed_symbols.append(symbol)
+
+        # ── 6b. Recommendations via the Message Batches API (50% cost) ───────
+        recommendations_by_symbol: dict[str, dict | None] = {}
+        if prepared:
+            logger.info(f"Requesting recommendations for {len(prepared)} tickers via batch...")
+            try:
+                recommendations_by_symbol = run_ticker_recommendations_batch(
+                    claude, prepared, macro_signals
+                )
+            except Exception:
+                logger.exception("Batch recommendation call failed — no recommendations this run")
+
+        # ── 6c. Persist recommendations ───────────────────────────────────────
+        for ticker_data in prepared:
+            symbol = ticker_data["symbol"]
+            try:
+                recommendation = recommendations_by_symbol.get(symbol)
                 if recommendation is None:
-                    logger.error(f"{symbol}: unparseable Claude response — nothing persisted")
+                    logger.error(f"{symbol}: no usable Claude response — nothing persisted")
                     failed_symbols.append(symbol)
                     continue
 
@@ -124,21 +153,22 @@ def main(dry_run: bool = False) -> None:
                 # Find most relevant macro signal for this ticker's sector
                 relevant_macro_id = None
                 for i, signal in enumerate(macro_signals):
-                    if ticker.get("sector") in (signal.get("affected_sectors") or []):
+                    if ticker_data.get("sector") in (signal.get("affected_sectors") or []):
                         relevant_macro_id = macro_signal_ids[i]
                         break
 
                 conn.ping(reconnect=True)
                 write_recommendation(
-                    conn, ticker["id"], recommendation, technical,
-                    sentiment_summary, relevant_macro_id, dry_run=dry_run,
+                    conn, ticker_data["id"], recommendation, ticker_data["technical"],
+                    ticker_data["sentiment"], relevant_macro_id, dry_run=dry_run,
                 )
+                posts_for_ticker = ticker_mentions.get(symbol, [])
                 if posts_for_ticker:
-                    write_reddit_mentions(conn, ticker["id"], posts_for_ticker, dry_run=dry_run)
+                    write_reddit_mentions(conn, ticker_data["id"], posts_for_ticker, dry_run=dry_run)
 
                 all_recommendations.append({"symbol": symbol, **recommendation})
             except Exception:
-                logger.exception(f"{symbol}: processing failed — continuing with remaining tickers")
+                logger.exception(f"{symbol}: persistence failed — continuing with remaining tickers")
                 failed_symbols.append(symbol)
 
         # ── 7. Write Reddit mentions for posts not matched to any known ticker ──
@@ -166,10 +196,19 @@ def main(dry_run: bool = False) -> None:
             "top_reddit_posts": [{"title": p["title"], "score": p["score"]} for p in top_posts],
             "trending_suggestions": trending_unknown,
         }
-        summary = run_daily_summary(claude, analysis_data)
+        # A failed summary is never persisted (no "Error generando resumen."
+        # placeholder overwriting the day's row) and never kills the run.
+        try:
+            summary = run_daily_summary(claude, analysis_data)
+        except Exception:
+            logger.exception("Daily summary generation failed")
+            summary = None
 
-        conn.ping(reconnect=True)
-        write_daily_summary(conn, summary, len(reddit_posts), dry_run=dry_run)
+        if summary is not None:
+            conn.ping(reconnect=True)
+            write_daily_summary(conn, summary, len(reddit_posts), dry_run=dry_run)
+        else:
+            logger.error("No daily summary persisted for today")
     finally:
         conn.close()
 
@@ -177,8 +216,8 @@ def main(dry_run: bool = False) -> None:
         f"Run complete. tickers_ok={len(all_recommendations)} "
         f"tickers_failed={len(failed_symbols)}"
         f"{f' (failed: {failed_symbols})' if failed_symbols else ''} "
-        f"overall_sentiment={summary.get('overall_sentiment')} "
-        f"hot_tickers={summary.get('hot_tickers')}"
+        f"overall_sentiment={summary.get('overall_sentiment') if summary else 'N/A'} "
+        f"hot_tickers={summary.get('hot_tickers') if summary else 'N/A'}"
     )
     claude.log_usage()
     if trending_unknown:

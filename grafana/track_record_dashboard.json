@@ -112,8 +112,7 @@
               "showPercentChange": false,
               "wideLayout": true,
               "percentChangeColorMode": "standard"
-            },
-            "version": "13.1.0-27127308516"
+            }
           }
         }
       }
@@ -194,8 +193,7 @@
               "showPercentChange": false,
               "wideLayout": true,
               "percentChangeColorMode": "standard"
-            },
-            "version": "13.1.0-27127308516"
+            }
           }
         }
       }
@@ -276,8 +274,7 @@
               "showPercentChange": false,
               "wideLayout": true,
               "percentChangeColorMode": "standard"
-            },
-            "version": "13.1.0-27127308516"
+            }
           }
         }
       }
@@ -313,8 +310,7 @@
                 "showLineNumbers": false,
                 "showMiniMap": false
               }
-            },
-            "version": "13.1.0-27127308516"
+            }
           }
         }
       }
@@ -498,8 +494,7 @@
                 "mode": "multi",
                 "sort": "none"
               }
-            },
-            "version": "13.1.0-27127308516"
+            }
           }
         }
       }
@@ -1001,10 +996,7 @@
     "from": "now-90d",
     "to": "now",
     "hideTimepicker": false,
-    "timezone": "browser",
-    "weekStart": "",
-    "nowDelay": "",
-    "quickRanges": []
+    "timezone": "browser"
   },
   "title": "Stock Recommendations — Track Record",
   "description": "How accurate the model's calls have been: when it was right, in which periods, and what correct calls share (sector, technical regime)."

@@ -104,7 +104,9 @@ def _compute_rsi(prices: pd.Series, period: int = 14) -> float | None:
     delta = prices.diff()
     gain = delta.clip(lower=0).rolling(period).mean()
     loss = (-delta.clip(upper=0)).rolling(period).mean()
-    rs = gain / loss.replace(0, float("inf"))
+    # Epsilon, not inf: an all-gain window (loss=0) must yield RSI≈100
+    # (overbought), not 0 — inf made rs=0 and inverted the signal.
+    rs = gain / loss.replace(0, 1e-10)
     rsi = 100 - (100 / (1 + rs))
     val = rsi.iloc[-1]
     return float(val) if not pd.isna(val) else None

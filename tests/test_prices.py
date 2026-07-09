@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 import pandas as pd
 
-from src.collectors.prices import _pick_next_earnings
+from src.collectors.prices import _compute_rsi, _pick_next_earnings
 
 TODAY = date(2026, 6, 12)
 
@@ -29,3 +29,25 @@ def test_normalizes_datetime_and_timestamp():
 
 def test_ignores_non_date_values():
     assert _pick_next_earnings(["garbage", None, 42], TODAY) is None
+
+
+def test_rsi_all_gains_is_overbought():
+    # 20 consecutive up-closes: loss=0 must give RSI≈100, not 0 (the F3 bug).
+    prices = pd.Series([100.0 + i for i in range(20)])
+    assert _compute_rsi(prices, 14) >= 99
+
+
+def test_rsi_all_losses_is_oversold():
+    prices = pd.Series([100.0 - i for i in range(20)])
+    assert _compute_rsi(prices, 14) <= 1
+
+
+def test_rsi_mixed_series_in_open_interval():
+    prices = pd.Series([100.0, 101.0, 99.5, 102.0, 100.5, 103.0, 101.5, 104.0,
+                        102.5, 105.0, 103.5, 106.0, 104.5, 107.0, 105.5, 108.0])
+    rsi = _compute_rsi(prices, 14)
+    assert 0 < rsi < 100
+
+
+def test_rsi_too_short_series_returns_none():
+    assert _compute_rsi(pd.Series([100.0, 101.0]), 14) is None

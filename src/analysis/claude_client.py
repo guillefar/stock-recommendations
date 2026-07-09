@@ -1,7 +1,10 @@
 import json
 import logging
+import time
 
 import anthropic
+from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
+from anthropic.types.messages.batch_create_params import Request
 
 from src.analysis.actions import allowed_actions, coerce_action
 from src.config import Config
@@ -9,6 +12,12 @@ from src.config import Config
 logger = logging.getLogger(__name__)
 
 MODEL = "claude-haiku-4-5-20251001"
+
+# The per-ticker calls go through the Message Batches API (50% discount).
+# A batch of ~63 tiny Haiku requests normally ends within a few minutes;
+# the deadline guards the cron job against a wedged batch (API max is 24h).
+BATCH_POLL_SECONDS = 30
+BATCH_DEADLINE_SECONDS = 45 * 60
 
 # Haiku 4.5 list pricing, USD per million tokens (see /claude-api → models table).
 # cache_control was removed in session 08 (min cacheable prefix is 4096 tokens),
@@ -43,30 +52,46 @@ _SUMMARY_SYSTEM = (
 
 class ClaudeClient:
     def __init__(self, cfg: Config):
+        if not cfg.anthropic_api_key:
+            raise ValueError(
+                "ANTHROPIC_API_KEY is not set — required for recommendation runs "
+                "(only evaluate_outcomes works without it)"
+            )
         self._client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
-        # Token usage accumulated across the 2+N calls of a run (cost telemetry).
-        self._usage = {"calls": 0, "input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
+        # Token usage accumulated across the calls of a run (cost telemetry).
+        # Batched tokens are tracked separately: the Batches API bills at 50%.
+        self._usage = {
+            "calls": 0, "input": 0, "output": 0,
+            "batch_input": 0, "batch_output": 0,
+            "cache_write": 0, "cache_read": 0,
+        }
 
-    def _record_usage(self, response) -> None:
+    def _record_usage(self, response, batch: bool = False) -> None:
         u = getattr(response, "usage", None)
         if u is None:
             return
         self._usage["calls"] += 1
-        self._usage["input"] += getattr(u, "input_tokens", 0) or 0
-        self._usage["output"] += getattr(u, "output_tokens", 0) or 0
+        in_key, out_key = ("batch_input", "batch_output") if batch else ("input", "output")
+        self._usage[in_key] += getattr(u, "input_tokens", 0) or 0
+        self._usage[out_key] += getattr(u, "output_tokens", 0) or 0
         self._usage["cache_write"] += getattr(u, "cache_creation_input_tokens", 0) or 0
         self._usage["cache_read"] += getattr(u, "cache_read_input_tokens", 0) or 0
 
     def estimated_cost_usd(self) -> float:
-        return sum(
-            self._usage[k] * _PRICE_PER_MTOK[k] for k in _PRICE_PER_MTOK
-        ) / 1_000_000
+        u = self._usage
+        plain = sum(u[k] * _PRICE_PER_MTOK[k] for k in _PRICE_PER_MTOK)
+        batched = 0.5 * (
+            u["batch_input"] * _PRICE_PER_MTOK["input"]
+            + u["batch_output"] * _PRICE_PER_MTOK["output"]
+        )
+        return (plain + batched) / 1_000_000
 
     def log_usage(self) -> None:
         u = self._usage
         logger.info(
             f"Claude usage: {u['calls']} calls — "
             f"input={u['input']} output={u['output']} "
+            f"batch_input={u['batch_input']} batch_output={u['batch_output']} (50% rate) "
             f"cache_write={u['cache_write']} cache_read={u['cache_read']} tokens; "
             f"estimated cost ${self.estimated_cost_usd():.4f} ({MODEL})"
         )
@@ -154,7 +179,12 @@ Para cada tema:
             }
         return themes
 
-    def analyze_ticker(self, ticker_data: dict, macro_signals: list[dict]) -> dict | None:
+    def _ticker_request_params(self, ticker_data: dict, macro_signals: list[dict]) -> dict:
+        """Builds the messages.create kwargs for one ticker recommendation.
+
+        Shared between the single-call path (analyze_ticker) and the Batches
+        path (analyze_tickers_batch) so both send byte-identical requests.
+        """
         tech = ticker_data.get("technical", {})
         sent = ticker_data.get("sentiment", {})
 
@@ -240,12 +270,12 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
   "reasoning": "2-4 frases máximo, citando las señales concretas que pesaron"
 }}"""
 
-        response = self._client.messages.create(
-            model=MODEL,
-            max_tokens=512,
-            system=_RECOMMENDATION_SYSTEM,
-            messages=[{"role": "user", "content": user_msg}],
-            output_config={
+        return {
+            "model": MODEL,
+            "max_tokens": 512,
+            "system": _RECOMMENDATION_SYSTEM,
+            "messages": [{"role": "user", "content": user_msg}],
+            "output_config": {
                 "format": {
                     "type": "json_schema",
                     "schema": {
@@ -262,8 +292,9 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
                     },
                 }
             },
-        )
-        self._record_usage(response)
+        }
+
+    def _parse_ticker_response(self, response, phase: str) -> dict | None:
         # Structured output guarantees schema-valid JSON. A refusal or truncation
         # still surfaces as None so the caller skips persistence (no fake HOLD).
         result = _structured_json(response, default=None)
@@ -274,7 +305,76 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
         result["action"] = coerce_action(result.get("action", ""), phase)
         return result
 
-    def generate_daily_summary(self, analysis_data: dict) -> dict:
+    def analyze_ticker(self, ticker_data: dict, macro_signals: list[dict]) -> dict | None:
+        """Single-ticker recommendation (ad-hoc/debug path; the run uses the batch)."""
+        response = self._client.messages.create(
+            **self._ticker_request_params(ticker_data, macro_signals)
+        )
+        self._record_usage(response)
+        return self._parse_ticker_response(response, ticker_data.get("phase") or "WATCHLIST")
+
+    def analyze_tickers_batch(
+        self, ticker_items: list[dict], macro_signals: list[dict]
+    ) -> dict[str, dict | None]:
+        """Runs all per-ticker recommendations through the Message Batches API.
+
+        Returns {symbol: recommendation-or-None}. Symbols can contain characters
+        that custom_id forbids (e.g. "XESC.DE"), so requests are keyed "t<index>".
+        A wedged batch is canceled at BATCH_DEADLINE_SECONDS and every ticker
+        comes back None (the caller counts them as failures).
+        """
+        if not ticker_items:
+            return {}
+
+        requests = [
+            Request(
+                custom_id=f"t{i}",
+                params=MessageCreateParamsNonStreaming(
+                    **self._ticker_request_params(td, macro_signals)
+                ),
+            )
+            for i, td in enumerate(ticker_items)
+        ]
+        batch = self._client.messages.batches.create(requests=requests)
+        logger.info(f"Submitted message batch {batch.id} ({len(requests)} ticker requests)")
+
+        deadline = time.monotonic() + BATCH_DEADLINE_SECONDS
+        while True:
+            batch = self._client.messages.batches.retrieve(batch.id)
+            if batch.processing_status == "ended":
+                break
+            if time.monotonic() > deadline:
+                logger.error(
+                    f"Batch {batch.id} still {batch.processing_status} after "
+                    f"{BATCH_DEADLINE_SECONDS}s — canceling"
+                )
+                self._client.messages.batches.cancel(batch.id)
+                return {td["symbol"]: None for td in ticker_items}
+            time.sleep(BATCH_POLL_SECONDS)
+
+        counts = batch.request_counts
+        logger.info(
+            f"Batch {batch.id} ended: {counts.succeeded} succeeded, "
+            f"{counts.errored} errored, {counts.canceled} canceled, {counts.expired} expired"
+        )
+
+        by_id = {f"t{i}": td for i, td in enumerate(ticker_items)}
+        results: dict[str, dict | None] = {td["symbol"]: None for td in ticker_items}
+        for entry in self._client.messages.batches.results(batch.id):
+            td = by_id.get(entry.custom_id)
+            if td is None:
+                continue
+            if entry.result.type != "succeeded":
+                logger.error(f"{td['symbol']}: batch request {entry.result.type}")
+                continue
+            message = entry.result.message
+            self._record_usage(message, batch=True)
+            results[td["symbol"]] = self._parse_ticker_response(
+                message, td.get("phase") or "WATCHLIST"
+            )
+        return results
+
+    def generate_daily_summary(self, analysis_data: dict) -> dict | None:
         tickers = analysis_data.get("tickers_analyzed", [])
         macro_signals = analysis_data.get("macro_signals", [])
         recommendations = analysis_data.get("recommendations", [])
@@ -309,7 +409,7 @@ Genera:
 
         response = self._client.messages.create(
             model=MODEL,
-            max_tokens=1024,
+            max_tokens=2048,
             system=_SUMMARY_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
             output_config={
@@ -332,10 +432,9 @@ Genera:
             },
         )
         self._record_usage(response)
-        return _structured_json(
-            response,
-            default={"summary": "Error generando resumen.", "hot_tickers": [], "overall_sentiment": "NEUTRAL"},
-        )
+        # None on failure — the caller must skip persistence rather than upsert
+        # an error placeholder over the day's row (same rule as analyze_ticker).
+        return _structured_json(response, default=None)
 
 
 def _structured_json(response, default):
@@ -345,8 +444,12 @@ def _structured_json(response, default):
     so no ```-fence stripping is needed. Stays defensive anyway: a refusal,
     truncation (``max_tokens``), or empty content returns ``default``.
     """
-    if getattr(response, "stop_reason", None) == "refusal":
+    stop_reason = getattr(response, "stop_reason", None)
+    if stop_reason == "refusal":
         logger.error("Claude refused the structured request (stop_reason=refusal)")
+        return default
+    if stop_reason == "max_tokens":
+        logger.error("Structured response truncated (stop_reason=max_tokens) — raise max_tokens")
         return default
     text = next(
         (b.text for b in response.content if getattr(b, "type", None) == "text"),
