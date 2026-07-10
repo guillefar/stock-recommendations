@@ -36,11 +36,14 @@ _MACRO_SYSTEM = (
 )
 
 _RECOMMENDATION_SYSTEM = (
-    "Eres analista financiero. Combinas señales técnicas, sentimiento de Reddit y "
-    "contexto macro para emitir una recomendación accionable por activo. Cuando la "
-    "evidencia lo respalda, das recomendaciones claras y decisivas — incluyendo BUY "
-    "y SELL — y reservas HOLD/WATCH/AVOID para cuando la evidencia es mixta, débil o "
-    "insuficiente. No te refugies por defecto en la opción neutral. "
+    "Eres analista financiero de un inversor de largo plazo: sus posiciones se "
+    "mantienen meses o años, no días. Combinas señales técnicas, sentimiento de "
+    "Reddit y contexto macro para emitir una recomendación accionable por activo, "
+    "evaluando la tesis de inversión a un horizonte de un mes a un año o más. "
+    "Cuando la evidencia lo respalda, das recomendaciones claras y decisivas — "
+    "incluyendo BUY y SELL — y reservas HOLD/WATCH/AVOID para cuando la evidencia "
+    "es mixta, débil o insuficiente. No te refugies por defecto en la opción "
+    "neutral, y no cambies de opinión por ruido de corto plazo. "
     "Respondes en JSON estricto con el schema dado, sin texto adicional."
 )
 
@@ -245,15 +248,21 @@ Sentimiento Reddit:
 Contexto macro relevante:
 {macro_text}
 
+Horizonte de inversión: mínimo un mes, típicamente un año o más. Evalúa la tesis
+de fondo a ese plazo; usa los indicadores de corto plazo (RSI, cambios 1d/7d) solo
+como timing de entrada/salida, nunca como razón principal. Un movimiento semanal
+no invalida una tesis de meses.
+
 Reglas de decisión según la posición:
-- Si YA tienes posición (HOLDING): elige SELL cuando hay señales bajistas claras
-  (deterioro técnico, ruptura de SMAs/soportes, RSI sobrecomprado revirtiendo, macro
-  negativo para el sector) o HOLD cuando la tendencia sigue intacta o las señales son
-  mixtas.
-- Si NO tienes posición (WATCHLIST): elige BUY cuando hay una entrada atractiva
-  (confluencia alcista: precio recuperando SMAs, RSI saliendo de sobreventa, momentum
-  y/o macro a favor), WATCH cuando es interesante pero sin un punto de entrada claro
-  todavía, o AVOID cuando las señales son negativas y no conviene entrar.
+- Si YA tienes posición (HOLDING): elige SELL cuando la tesis de largo plazo se
+  deterioró (deterioro técnico sostenido, ruptura de SMAs/soportes relevantes, macro
+  estructuralmente negativo para el sector) o HOLD cuando la tesis sigue intacta o
+  las señales son mixtas.
+- Si NO tienes posición (WATCHLIST): elige BUY cuando es un punto de entrada
+  atractivo para una posición de varios meses (confluencia alcista: precio
+  recuperando SMAs, RSI saliendo de sobreventa, momentum y/o macro a favor), WATCH
+  cuando la tesis es interesante pero sin un punto de entrada claro todavía, o AVOID
+  cuando las señales son negativas y no conviene entrar.
 
 Calibración de confidence (0.0–1.0):
 - 0.80–1.00: señales fuertemente alineadas en una dirección.
@@ -267,7 +276,7 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
 {{
   "action": "{"|".join(allowed)}",
   "confidence": 0.0,
-  "reasoning": "2-4 frases máximo, citando las señales concretas que pesaron"
+  "reasoning": "2-4 frases máximo, citando las señales concretas que pesaron y la tesis al horizonte de 1+ mes"
 }}"""
 
         return {
@@ -410,7 +419,7 @@ Cambios de recomendación vs la corrida anterior:
 Tickers trending (no en watchlist/holdings): {trending_text}
 
 Genera:
-- `summary`: resumen markdown de 3-5 párrafos. Si hubo cambios de recomendación, destácalos explícitamente (qué cambió y por qué es relevante).
+- `summary`: resumen markdown de 3-5 párrafos para un inversor de largo plazo (horizonte de un mes a un año o más) — enfócate en implicaciones a ese plazo, no en movimientos intradía. Si hubo cambios de recomendación, destácalos explícitamente (qué cambió y por qué es relevante).
 - `hot_tickers`: los tickers más relevantes del día.
 - `overall_sentiment`: el sentimiento general del mercado."""
 

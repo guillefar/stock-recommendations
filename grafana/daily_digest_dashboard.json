@@ -1786,7 +1786,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT\n  CASE WHEN o.confidence >= 0.8 THEN '0.80+'\n       WHEN o.confidence >= 0.6 THEN '0.60-0.79'\n       WHEN o.confidence >= 0.4 THEN '0.40-0.59'\n       ELSE '< 0.40' END AS `confidence band`,\n  o.action,\n  COUNT(*) AS total,\n  SUM(o.verdict = 'CORRECT')   AS correct,\n  SUM(o.verdict = 'INCORRECT') AS incorrect,\n  SUM(o.verdict = 'NEUTRAL')   AS neutral,\n  ROUND(100 * SUM(o.verdict = 'CORRECT') /\n    NULLIF(SUM(o.verdict IN ('CORRECT','INCORRECT')), 0), 0) AS `hit rate %`\nFROM recommendation_outcomes o\nGROUP BY `confidence band`, o.action\nORDER BY FIELD(`confidence band`, '0.80+', '0.60-0.79', '0.40-0.59', '< 0.40'),\n         FIELD(o.action, 'BUY', 'SELL', 'WATCH', 'HOLD', 'AVOID')"
+                      "rawSql": "SELECT\n  CASE WHEN o.confidence >= 0.8 THEN '0.80+'\n       WHEN o.confidence >= 0.6 THEN '0.60-0.79'\n       WHEN o.confidence >= 0.4 THEN '0.40-0.59'\n       ELSE '< 0.40' END AS `confidence band`,\n  o.action,\n  COUNT(*) AS total,\n  SUM(o.verdict = 'CORRECT')   AS correct,\n  SUM(o.verdict = 'INCORRECT') AS incorrect,\n  SUM(o.verdict = 'NEUTRAL')   AS neutral,\n  ROUND(100 * SUM(o.verdict = 'CORRECT') /\n    NULLIF(SUM(o.verdict IN ('CORRECT','INCORRECT')), 0), 0) AS `hit rate %`\nFROM recommendation_outcomes o\nWHERE o.horizon_days = 30\nGROUP BY `confidence band`, o.action\nORDER BY FIELD(`confidence band`, '0.80+', '0.60-0.79', '0.40-0.59', '< 0.40'),\n         FIELD(o.action, 'BUY', 'SELL', 'WATCH', 'HOLD', 'AVOID')"
                     },
                     "version": "v0"
                   },
@@ -1801,7 +1801,7 @@
         "description": "Calibration check over all graded outcomes: is the model's self-reported confidence informative? Hit rate is correct / decided (NEUTRAL excluded), per confidence band and action. Well-calibrated = hit rate rises with the band.",
         "id": 11,
         "links": [],
-        "title": "Hit Rate by Confidence Band (D3)",
+        "title": "Hit Rate by Confidence Band (D3, 30d)",
         "vizConfig": {
           "group": "table",
           "kind": "VizConfig",

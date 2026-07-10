@@ -49,7 +49,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT ROUND(100*SUM(verdict='CORRECT')/\n  NULLIF(SUM(verdict IN('CORRECT','INCORRECT')),0),0) AS v\nFROM recommendation_outcomes\nWHERE horizon_days=7 AND $__timeFilter(generated_at)"
+                      "rawSql": "SELECT ROUND(100*SUM(verdict='CORRECT')/\n  NULLIF(SUM(verdict IN('CORRECT','INCORRECT')),0),0) AS v\nFROM recommendation_outcomes\nWHERE horizon_days=30 AND $__timeFilter(generated_at)"
                     },
                     "version": "v0"
                   },
@@ -64,7 +64,7 @@
         "description": "CORRECT ÷ (CORRECT+INCORRECT) across all graded 7-day outcomes in range.",
         "id": 1,
         "links": [],
-        "title": "Overall hit rate (7d)",
+        "title": "Overall hit rate (30d)",
         "vizConfig": {
           "group": "stat",
           "kind": "VizConfig",
@@ -113,7 +113,8 @@
               "wideLayout": true,
               "percentChangeColorMode": "standard"
             }
-          }
+          },
+          "version": "13.2.0-28852654685"
         }
       }
     },
@@ -138,7 +139,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT ROUND(100*SUM(verdict<>'NEUTRAL')/NULLIF(COUNT(*),0),0) AS v\nFROM recommendation_outcomes\nWHERE horizon_days=7 AND $__timeFilter(generated_at)"
+                      "rawSql": "SELECT ROUND(100*SUM(verdict<>'NEUTRAL')/NULLIF(COUNT(*),0),0) AS v\nFROM recommendation_outcomes\nWHERE horizon_days=30 AND $__timeFilter(generated_at)"
                     },
                     "version": "v0"
                   },
@@ -153,7 +154,7 @@
         "description": "Share of graded 7-day calls that were not neutral.",
         "id": 2,
         "links": [],
-        "title": "Decisiveness (7d)",
+        "title": "Decisiveness (30d)",
         "vizConfig": {
           "group": "stat",
           "kind": "VizConfig",
@@ -194,7 +195,8 @@
               "wideLayout": true,
               "percentChangeColorMode": "standard"
             }
-          }
+          },
+          "version": "13.2.0-28852654685"
         }
       }
     },
@@ -219,7 +221,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT SUM(verdict IN('CORRECT','INCORRECT')) AS v\nFROM recommendation_outcomes\nWHERE horizon_days=7 AND $__timeFilter(generated_at)"
+                      "rawSql": "SELECT SUM(verdict IN('CORRECT','INCORRECT')) AS v\nFROM recommendation_outcomes\nWHERE horizon_days=30 AND $__timeFilter(generated_at)"
                     },
                     "version": "v0"
                   },
@@ -234,7 +236,7 @@
         "description": "Count of 7-day outcomes graded CORRECT or INCORRECT (the hit-rate sample).",
         "id": 3,
         "links": [],
-        "title": "Decided calls (7d)",
+        "title": "Decided calls (30d)",
         "vizConfig": {
           "group": "stat",
           "kind": "VizConfig",
@@ -275,7 +277,8 @@
               "wideLayout": true,
               "percentChangeColorMode": "standard"
             }
-          }
+          },
+          "version": "13.2.0-28852654685"
         }
       }
     },
@@ -304,14 +307,15 @@
             },
             "options": {
               "mode": "markdown",
-              "content": "### How to read this dashboard\n\n**Hit rate = CORRECT ÷ (CORRECT + INCORRECT)** — *neutral calls are excluded*, so a low hit rate and a low sample size often go together.\n\n- 🟢 **CORRECT** — the call's thesis played out within the horizon.\n- ⚪ **NEUTRAL** — the move was too small to judge (not counted in the hit rate).\n- 🔴 **INCORRECT** — the price moved against the call.\n\n**Decisiveness** = share of graded calls that were *not* neutral. All tiles and tables use the **7-day** horizon unless noted. Use the time picker (top-right) to scope a period.",
+              "content": "### How to read this dashboard\n\n**Hit rate = CORRECT ÷ (CORRECT + INCORRECT)** — *neutral calls are excluded*, so a low hit rate and a low sample size often go together.\n\n- 🟢 **CORRECT** — the call's thesis played out within the horizon.\n- ⚪ **NEUTRAL** — the move was too small to judge (not counted in the hit rate).\n- 🔴 **INCORRECT** — the price moved against the call.\n\n**Decisiveness** = share of graded calls that were *not* neutral. All tiles and tables use the **30-day** horizon (long-term orientation); 7d appears on the trend chart as a short-term timing diagnostic. 90d and 1y series fill in as outcomes mature (first 90d ≈ Oct 2026, first 1y ≈ May 2027). Grading bands widen with the horizon (e.g. a 1-year BUY must beat +15%, not +4%). Use the time picker (top-right) to scope a period.",
               "code": {
                 "language": "plaintext",
                 "showLineNumbers": false,
                 "showMiniMap": false
               }
             }
-          }
+          },
+          "version": "13.2.0-28852654685"
         }
       }
     },
@@ -336,7 +340,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT\n  UNIX_TIMESTAMP(DATE(generated_at) - INTERVAL WEEKDAY(generated_at) DAY) AS time_sec,\n  ROUND(100*SUM(verdict='CORRECT' AND horizon_days=7)/\n    NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=7),0),0)  AS `7d hit %`,\n  ROUND(100*SUM(verdict='CORRECT' AND horizon_days=30)/\n    NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=30),0),0) AS `30d hit %`,\n  SUM(horizon_days=7 AND verdict IN('CORRECT','INCORRECT'))                 AS `7d decided`\nFROM recommendation_outcomes\nWHERE $__timeFilter(generated_at)\nGROUP BY time_sec\nORDER BY time_sec"
+                      "rawSql": "SELECT UNIX_TIMESTAMP(DATE(generated_at) - INTERVAL WEEKDAY(generated_at) DAY) AS time_sec, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=30)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=30),0),0) AS `30d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=7)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=7),0),0) AS `7d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=90)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=90),0),0) AS `90d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=365)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=365),0),0) AS `365d hit %`, SUM(horizon_days=30 AND verdict IN('CORRECT','INCORRECT')) AS `30d decided` FROM recommendation_outcomes WHERE $__timeFilter(generated_at) GROUP BY time_sec ORDER BY time_sec"
                     },
                     "version": "v0"
                   },
@@ -402,7 +406,7 @@
                 {
                   "matcher": {
                     "id": "byName",
-                    "options": "7d hit %"
+                    "options": "30d hit %"
                   },
                   "properties": [
                     {
@@ -417,7 +421,22 @@
                 {
                   "matcher": {
                     "id": "byName",
-                    "options": "30d hit %"
+                    "options": "7d hit %"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "super-light-green"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "90d hit %"
                   },
                   "properties": [
                     {
@@ -432,7 +451,22 @@
                 {
                   "matcher": {
                     "id": "byName",
-                    "options": "7d decided"
+                    "options": "365d hit %"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "purple"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "30d decided"
                   },
                   "properties": [
                     {
@@ -495,7 +529,8 @@
                 "sort": "none"
               }
             }
-          }
+          },
+          "version": "13.2.0-28852654685"
         }
       }
     },
@@ -520,7 +555,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT\n  COALESCE(NULLIF(t.sector_disp,''),'(unknown)') AS sector,\n  COUNT(*)                    AS total,\n  SUM(o.verdict='CORRECT')    AS correct,\n  SUM(o.verdict='INCORRECT')  AS incorrect,\n  SUM(o.verdict='NEUTRAL')    AS neutral,\n  ROUND(100*SUM(o.verdict='CORRECT')/\n    NULLIF(SUM(o.verdict IN('CORRECT','INCORRECT')),0),0) AS `hit rate %`\nFROM recommendation_outcomes o\nJOIN tickers t ON o.ticker_id=t.id\nWHERE o.horizon_days=7 AND $__timeFilter(o.generated_at)\nGROUP BY COALESCE(NULLIF(t.sector_disp,''),'(unknown)')\nHAVING SUM(o.verdict IN('CORRECT','INCORRECT')) >= 10\nORDER BY `hit rate %` DESC, total DESC"
+                      "rawSql": "SELECT\n  COALESCE(NULLIF(t.sector_disp,''),'(unknown)') AS sector,\n  COUNT(*)                    AS total,\n  SUM(o.verdict='CORRECT')    AS correct,\n  SUM(o.verdict='INCORRECT')  AS incorrect,\n  SUM(o.verdict='NEUTRAL')    AS neutral,\n  ROUND(100*SUM(o.verdict='CORRECT')/\n    NULLIF(SUM(o.verdict IN('CORRECT','INCORRECT')),0),0) AS `hit rate %`\nFROM recommendation_outcomes o\nJOIN tickers t ON o.ticker_id=t.id\nWHERE o.horizon_days=30 AND $__timeFilter(o.generated_at)\nGROUP BY COALESCE(NULLIF(t.sector_disp,''),'(unknown)')\nHAVING SUM(o.verdict IN('CORRECT','INCORRECT')) >= 10\nORDER BY `hit rate %` DESC, total DESC"
                     },
                     "version": "v0"
                   },
@@ -535,7 +570,7 @@
         "description": "Which sectors the model reads well. Sectors with fewer than 10 decided calls are hidden. '(unknown)' is mostly ETFs / non-US tickers with no sector metadata.",
         "id": 6,
         "links": [],
-        "title": "Hit rate by sector",
+        "title": "Hit rate by sector (30d)",
         "vizConfig": {
           "group": "table",
           "kind": "VizConfig",
@@ -705,7 +740,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT\n  CASE\n    WHEN rsi IS NULL THEN '6 Unknown'\n    WHEN rsi < 30    THEN '1 Oversold (<30)'\n    WHEN rsi < 45    THEN '2 Weak (30-45)'\n    WHEN rsi < 55    THEN '3 Neutral (45-55)'\n    WHEN rsi < 70    THEN '4 Strong (55-70)'\n    ELSE                  '5 Overbought (70+)'\n  END AS `RSI band`,\n  COUNT(*)                  AS total,\n  SUM(verdict='CORRECT')    AS correct,\n  SUM(verdict='INCORRECT')  AS incorrect,\n  SUM(verdict='NEUTRAL')    AS neutral,\n  ROUND(100*SUM(verdict='CORRECT')/\n    NULLIF(SUM(verdict IN('CORRECT','INCORRECT')),0),0) AS `hit rate %`\nFROM (\n  SELECT o.verdict,\n    CAST(JSON_EXTRACT(r.technical,'$.rsi') AS DECIMAL(6,2)) AS rsi\n  FROM recommendation_outcomes o\n  JOIN recommendations r ON o.recommendation_id=r.id\n  WHERE o.horizon_days=7 AND $__timeFilter(o.generated_at)\n) z\nGROUP BY `RSI band`\nORDER BY `RSI band`"
+                      "rawSql": "SELECT\n  CASE\n    WHEN rsi IS NULL THEN '6 Unknown'\n    WHEN rsi < 30    THEN '1 Oversold (<30)'\n    WHEN rsi < 45    THEN '2 Weak (30-45)'\n    WHEN rsi < 55    THEN '3 Neutral (45-55)'\n    WHEN rsi < 70    THEN '4 Strong (55-70)'\n    ELSE                  '5 Overbought (70+)'\n  END AS `RSI band`,\n  COUNT(*)                  AS total,\n  SUM(verdict='CORRECT')    AS correct,\n  SUM(verdict='INCORRECT')  AS incorrect,\n  SUM(verdict='NEUTRAL')    AS neutral,\n  ROUND(100*SUM(verdict='CORRECT')/\n    NULLIF(SUM(verdict IN('CORRECT','INCORRECT')),0),0) AS `hit rate %`\nFROM (\n  SELECT o.verdict,\n    CAST(JSON_EXTRACT(r.technical,'$.rsi') AS DECIMAL(6,2)) AS rsi\n  FROM recommendation_outcomes o\n  JOIN recommendations r ON o.recommendation_id=r.id\n  WHERE o.horizon_days=30 AND $__timeFilter(o.generated_at)\n) z\nGROUP BY `RSI band`\nORDER BY `RSI band`"
                     },
                     "version": "v0"
                   },
@@ -720,7 +755,7 @@
         "description": "Outcomes bucketed by the ticker's RSI when the call was made — surfaces the technical regime behind correct calls.",
         "id": 7,
         "links": [],
-        "title": "Hit rate by RSI band (at call time)",
+        "title": "Hit rate by RSI band (at call time, 30d)",
         "vizConfig": {
           "group": "table",
           "kind": "VizConfig",

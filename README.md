@@ -65,7 +65,8 @@ Four dashboards live in [grafana/](grafana/), authored in **schema v2**
   (overall hit rate, decisiveness, sample size), a **weekly hit-rate trend**
   (when the model was right, by horizon), and **hit rate by sector** and **by
   RSI band** (what correct calls share). Hit rate = CORRECT ÷ (CORRECT+INCORRECT),
-  so neutral calls are excluded; all panels default to the 7-day horizon and
+  so neutral calls are excluded; all panels default to the **30-day** horizon
+  (long-term orientation — 7d is a timing diagnostic on the trend chart) and
   respect the time picker.
 
 To import: **Dashboards → New → Import**, paste the JSON, and select your MySQL

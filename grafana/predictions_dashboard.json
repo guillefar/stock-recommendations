@@ -49,7 +49,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT\n  t.symbol,\n  GROUP_CONCAT(DISTINCT s.status) AS phase,\n  r.action,\n  ROUND(r.confidence * 100, 0) AS `confidence %`,\n  CAST(JSON_EXTRACT(r.technical, '$.price') AS DECIMAL(12,2)) AS `entry price`,\n  LEFT(r.reasoning, 200) AS reasoning,\n  hr.`hit rate %` AS `ticker hit rate %`,\n  hr.decided AS `graded calls`\nFROM recommendations r\nJOIN tickers t ON r.ticker_id = t.id\nLEFT JOIN v_ticker_status_multi s ON s.ticker_id = t.id\nLEFT JOIN (\n  SELECT ticker_id,\n    ROUND(100*SUM(verdict='CORRECT')/NULLIF(SUM(verdict IN('CORRECT','INCORRECT')),0),0) AS `hit rate %`,\n    SUM(verdict IN('CORRECT','INCORRECT')) AS decided\n  FROM recommendation_outcomes\n  WHERE horizon_days = 7\n  GROUP BY ticker_id\n) hr ON hr.ticker_id = t.id\nWHERE r.generated_at = (\n  SELECT MAX(r2.generated_at) FROM recommendations r2 WHERE r2.ticker_id = r.ticker_id\n)\nGROUP BY r.id, t.symbol, r.action, r.confidence, r.reasoning, r.technical, hr.`hit rate %`, hr.decided\nORDER BY FIELD(r.action,'BUY','SELL','AVOID','WATCH','HOLD'), r.confidence DESC, t.symbol"
+                      "rawSql": "SELECT\n  t.symbol,\n  GROUP_CONCAT(DISTINCT s.status) AS phase,\n  r.action,\n  ROUND(r.confidence * 100, 0) AS `confidence %`,\n  CAST(JSON_EXTRACT(r.technical, '$.price') AS DECIMAL(12,2)) AS `entry price`,\n  LEFT(r.reasoning, 200) AS reasoning,\n  hr.`hit rate %` AS `ticker hit rate %`,\n  hr.decided AS `graded calls`\nFROM recommendations r\nJOIN tickers t ON r.ticker_id = t.id\nLEFT JOIN v_ticker_status_multi s ON s.ticker_id = t.id\nLEFT JOIN (\n  SELECT ticker_id,\n    ROUND(100*SUM(verdict='CORRECT')/NULLIF(SUM(verdict IN('CORRECT','INCORRECT')),0),0) AS `hit rate %`,\n    SUM(verdict IN('CORRECT','INCORRECT')) AS decided\n  FROM recommendation_outcomes\n  WHERE horizon_days = 30\n  GROUP BY ticker_id\n) hr ON hr.ticker_id = t.id\nWHERE r.generated_at = (\n  SELECT MAX(r2.generated_at) FROM recommendations r2 WHERE r2.ticker_id = r.ticker_id\n)\nGROUP BY r.id, t.symbol, r.action, r.confidence, r.reasoning, r.technical, hr.`hit rate %`, hr.decided\nORDER BY FIELD(r.action,'BUY','SELL','AVOID','WATCH','HOLD'), r.confidence DESC, t.symbol"
                     },
                     "version": "v0"
                   },
@@ -298,7 +298,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT\n  UNIX_TIMESTAMP(DATE(generated_at) - INTERVAL WEEKDAY(generated_at) DAY) AS time_sec,\n  ROUND(100*SUM(verdict='CORRECT' AND horizon_days=7)/\n    NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=7),0),0)  AS `7d hit %`,\n  ROUND(100*SUM(verdict='CORRECT' AND horizon_days=30)/\n    NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=30),0),0) AS `30d hit %`,\n  SUM(horizon_days=7 AND verdict IN('CORRECT','INCORRECT'))                 AS `7d decided`\nFROM recommendation_outcomes\nWHERE $__timeFilter(generated_at)\nGROUP BY time_sec\nORDER BY time_sec"
+                      "rawSql": "SELECT UNIX_TIMESTAMP(DATE(generated_at) - INTERVAL WEEKDAY(generated_at) DAY) AS time_sec, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=30)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=30),0),0) AS `30d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=7)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=7),0),0) AS `7d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=90)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=90),0),0) AS `90d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=365)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=365),0),0) AS `365d hit %`, SUM(horizon_days=30 AND verdict IN('CORRECT','INCORRECT')) AS `30d decided` FROM recommendation_outcomes WHERE $__timeFilter(generated_at) GROUP BY time_sec ORDER BY time_sec"
                     },
                     "version": "v0"
                   },
@@ -364,7 +364,7 @@
                 {
                   "matcher": {
                     "id": "byName",
-                    "options": "7d hit %"
+                    "options": "30d hit %"
                   },
                   "properties": [
                     {
@@ -379,7 +379,22 @@
                 {
                   "matcher": {
                     "id": "byName",
-                    "options": "30d hit %"
+                    "options": "7d hit %"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "super-light-green"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "90d hit %"
                   },
                   "properties": [
                     {
@@ -394,7 +409,22 @@
                 {
                   "matcher": {
                     "id": "byName",
-                    "options": "7d decided"
+                    "options": "365d hit %"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "purple"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "30d decided"
                   },
                   "properties": [
                     {
@@ -486,7 +516,7 @@
             },
             "options": {
               "mode": "markdown",
-              "content": "### How to read this dashboard\n\n**Latest call per ticker** is today's actionable view: what the model currently says about everything you hold or watch, strongest calls first (BUY/SELL before WATCH/HOLD).\n\n- **ticker hit rate %** — how often *this ticker's* past calls were right at 7 days: CORRECT ÷ (CORRECT + INCORRECT), neutral outcomes excluded. Trust high-confidence calls on high-hit-rate tickers more.\n- **graded calls** — the sample behind that hit rate; below ~10 it's noise.\n\n**Hit rate over time** shows whether accuracy is improving week over week (bars = how many graded calls each week; thin bars mean a noisy percentage). It follows the time picker; the table above always shows the latest run.",
+              "content": "### How to read this dashboard\n\n**Latest call per ticker** is today's actionable view: what the model currently says about everything you hold or watch, strongest calls first (BUY/SELL before WATCH/HOLD).\n\n- **ticker hit rate %** — how often *this ticker's* past calls were right at 30 days: CORRECT ÷ (CORRECT + INCORRECT), neutral outcomes excluded. Trust high-confidence calls on high-hit-rate tickers more.\n- **graded calls** — the sample behind that hit rate; below ~10 it's noise.\n\n**Hit rate over time** shows whether accuracy is improving week over week (bars = how many graded calls each week; thin bars mean a noisy percentage). It follows the time picker; the table above always shows the latest run.\n\n**Horizon:** all hit rates are graded at the **30-day** horizon — these are long-term calls (≥1 month, up to a year), not weekly trades. 90d and 1y grading accumulates in the background.",
               "code": {
                 "language": "plaintext",
                 "showLineNumbers": false,

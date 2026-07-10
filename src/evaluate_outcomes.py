@@ -14,6 +14,7 @@ Run after a few days of price history have accumulated:
 import argparse
 import logging
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
@@ -30,58 +31,70 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Calendar-day horizons at which to grade each recommendation.
-HORIZONS = (7, 30)
+@dataclass(frozen=True)
+class Bands:
+    """Grading thresholds for one horizon (all as fractional returns)."""
 
-# Move (in either direction) below which an outcome is "flat" rather than a hit/miss.
-NEUTRAL_BAND = 0.02
+    neutral: float     # |return| below this is "flat" rather than a hit/miss
+    watch_move: float  # WATCH is CORRECT when |return| reaches this (worth watching)
+    hold_loss: float   # HOLD is INCORRECT below −this (the holding deserved a SELL)
+
+
+# Per-horizon grading thresholds (decisions log, 2026-07-10 session 14).
+# Bands widen roughly with √time so a verdict means the same thing at every
+# horizon: a 1-year BUY must beat +15%, not the +2% that suits a week.
+HORIZON_BANDS = {
+    7: Bands(neutral=0.02, watch_move=0.05, hold_loss=0.10),
+    30: Bands(neutral=0.04, watch_move=0.10, hold_loss=0.15),
+    90: Bands(neutral=0.07, watch_move=0.15, hold_loss=0.20),
+    365: Bands(neutral=0.15, watch_move=0.30, hold_loss=0.30),
+}
+
+# Calendar-day horizons at which to grade each recommendation. 30d is the
+# headline metric (long-term orientation); 7d stays as a timing diagnostic.
+HORIZONS = tuple(sorted(HORIZON_BANDS))
 
 # How long after a horizon we still accept a snapshot as the exit price. Guards
 # against matching a far-future snapshot when price data is sparse.
 EXIT_WINDOW_DAYS = 14
 
-# WATCH is movement-graded: a move at least this large (either direction) means
-# the ticker was worth watching.
-WATCH_MOVE_THRESHOLD = 0.05
 
-# HOLD is wrong only on a deep loss: a drop beyond this band means the holding
-# deserved a SELL call instead.
-HOLD_LOSS_BAND = 0.10
+def grade(action: str, forward_return: float, horizon: int = 7) -> str:
+    """Verdict for a recommendation given its forward return at a horizon.
 
-
-def grade(action: str, forward_return: float, band: float = NEUTRAL_BAND) -> str:
-    """Verdict for a recommendation given its forward return.
-
-    Semantics (decisions log, 2026-06-12 session 06):
-    - BUY is bullish, SELL/AVOID bearish, with a ±`band` neutral zone.
-    - WATCH is direction-agnostic: CORRECT if |return| ≥ WATCH_MOVE_THRESHOLD,
-      INCORRECT if |return| < `band` (the watch wasted attention), else NEUTRAL.
-    - HOLD: CORRECT if flat (|return| ≤ `band`), INCORRECT below −HOLD_LOSS_BAND,
-      else NEUTRAL. Upside is never penalized.
+    Semantics (decisions log, 2026-06-12 session 06; per-horizon bands
+    2026-07-10 session 14):
+    - BUY is bullish, SELL/AVOID bearish, with a ±neutral-band zone.
+    - WATCH is direction-agnostic: CORRECT if |return| ≥ the watch-move
+      threshold, INCORRECT if |return| < the neutral band (the watch wasted
+      attention), else NEUTRAL.
+    - HOLD: CORRECT if flat (|return| ≤ neutral band), INCORRECT below the
+      hold-loss band, else NEUTRAL. Upside is never penalized.
     Returns 'CORRECT', 'INCORRECT', or 'NEUTRAL'.
     """
+    b = HORIZON_BANDS[horizon]
     if action == "BUY":
-        if forward_return > band:
+        if forward_return > b.neutral:
             return "CORRECT"
-        if forward_return < -band:
+        if forward_return < -b.neutral:
             return "INCORRECT"
         return "NEUTRAL"
     if action in ("SELL", "AVOID"):
-        if forward_return < -band:
+        if forward_return < -b.neutral:
             return "CORRECT"
-        if forward_return > band:
+        if forward_return > b.neutral:
             return "INCORRECT"
         return "NEUTRAL"
     if action == "WATCH":
-        if abs(forward_return) >= WATCH_MOVE_THRESHOLD:
+        if abs(forward_return) >= b.watch_move:
             return "CORRECT"
-        if abs(forward_return) < band:
+        if abs(forward_return) < b.neutral:
             return "INCORRECT"
         return "NEUTRAL"
     # HOLD
-    if forward_return < -HOLD_LOSS_BAND:
+    if forward_return < -b.hold_loss:
         return "INCORRECT"
-    return "CORRECT" if abs(forward_return) <= band else "NEUTRAL"
+    return "CORRECT" if abs(forward_return) <= b.neutral else "NEUTRAL"
 
 
 def _now() -> datetime:
@@ -189,7 +202,7 @@ def main(dry_run: bool = False) -> None:
                 if entry is None or exit_ is None or entry == 0:
                     continue  # missing entry price or no matured price in either table
                 fwd = float(exit_) / float(entry) - 1.0
-                verdict = grade(row["action"], fwd)
+                verdict = grade(row["action"], fwd, horizon)
                 graded += 1
                 if dry_run:
                     logger.info(

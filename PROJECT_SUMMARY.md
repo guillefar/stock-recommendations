@@ -21,7 +21,7 @@ A separate sibling project owns `tickers`, `holdings`, `watchlist`, `transaction
 - `daily_market_summary` — one row per calendar date.
 - `reddit_mentions` — audit trail of posts referencing tickers.
 - `macro_signals` — themes detected from headlines.
-- `recommendation_outcomes` — one row per recommendation per horizon (7d/30d); grades the forward return. Populated separately by `python -m src.evaluate_outcomes`, not by the main pipeline.
+- `recommendation_outcomes` — one row per recommendation per horizon (7d/30d/90d/365d; grading bands widen with the horizon, 30d is the headline metric); grades the forward return. Populated separately by `python -m src.evaluate_outcomes`, not by the main pipeline.
 - `price_checks` — one observed price per ticker per day, written by the main run; the evaluator's fallback exit-price source while `price_snapshots` is stale.
 
 Full DDL: [migrations/](migrations/) (001 recommendation tables, 002 outcomes, 003 price_checks).
