@@ -15,6 +15,7 @@ from src.analysis.summary import run_daily_summary
 from src.collectors.news import fetch_macro_headlines
 from src.collectors.prices import (
     fetch_etf_info,
+    fetch_fundamentals,
     fetch_next_earnings,
     fetch_prices_and_indicators,
     fetch_ticker_news,
@@ -157,14 +158,20 @@ def main(dry_run: bool = False, force_retro: bool = False) -> None:
                 }
 
                 # These collectors degrade to empty/None on error — news,
-                # earnings and ETF profile enrich the prompt but never fail
-                # the ticker. The ETF fetch only runs for actual ETFs
-                # (quote_type from the tickers table), so stocks pay nothing.
+                # earnings, ETF profile and fundamentals enrich the prompt but
+                # never fail the ticker. The ETF fetch only runs for actual
+                # ETFs and the fundamentals fetch only for actual equities
+                # (quote_type from the tickers table) — indices and untyped
+                # tickers pay nothing and get neither block.
                 news = fetch_ticker_news(symbol)[:3]
                 next_earnings = fetch_next_earnings(symbol)
                 etf_info = (
                     fetch_etf_info(symbol)
                     if ticker.get("quote_type") == "ETF" else None
+                )
+                fundamentals = (
+                    fetch_fundamentals(symbol)
+                    if ticker.get("quote_type") == "EQUITY" else None
                 )
 
                 prev = previous_actions.get(ticker["id"])
@@ -175,6 +182,7 @@ def main(dry_run: bool = False, force_retro: bool = False) -> None:
                     "news": news,
                     "next_earnings": next_earnings,
                     "etf_info": etf_info,
+                    "fundamentals": fundamentals,
                     "prev_action": prev["action"] if prev else None,
                     "prev_held_days": (
                         (_today() - prev["held_since"].date()).days

@@ -1,4 +1,5 @@
 import logging
+import math
 from datetime import date, datetime
 
 import pandas as pd
@@ -145,6 +146,51 @@ def _build_etf_info(overview, operations, holdings, sector_weights, symbol: str)
     }
     has_content = info["family"] or info["top_holdings"] or info["sector_weights"]
     return info if has_content else None
+
+
+def fetch_fundamentals(symbol: str) -> dict | None:
+    """Valuation/profitability snapshot for a stock via yfinance `Ticker.info`.
+
+    Only called for tickers whose `quote_type` is EQUITY (the index and the
+    untyped tickers get nothing; ETFs get their own funds_data block instead).
+    Returns None on any fetch error or when Yahoo has none of the fields —
+    the prompt block is optional enrichment and must never fail the ticker.
+    """
+    try:
+        return _build_fundamentals(yf.Ticker(symbol).info or {})
+    except Exception as e:
+        logger.warning(f"Error fetching fundamentals for {symbol}: {e}")
+        return None
+
+
+def _build_fundamentals(info: dict) -> dict | None:
+    """Normalizes `Ticker.info` into the prompt's fundamentals shape (lean set).
+
+    Yahoo quirks handled: `trailingPE` can be Infinity (dropped — a non-finite
+    number carries no signal), `dividendYield` is already in percent units
+    (3.43 means 3.43%), margins/growth are fractions of 1.
+    """
+    def num(field: str) -> float | None:
+        v = info.get(field)
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return None
+        return v if math.isfinite(v) else None
+
+    fund = {
+        "trailing_pe": num("trailingPE"),
+        "forward_pe": num("forwardPE"),
+        "dividend_yield_pct": num("dividendYield"),
+        "profit_margin": num("profitMargins"),
+        "operating_margin": num("operatingMargins"),
+        "revenue_growth": num("revenueGrowth"),
+        "earnings_growth": num("earningsGrowth"),
+        "market_cap": num("marketCap"),
+        "currency": info.get("currency"),
+    }
+    has_content = any(v is not None for k, v in fund.items() if k != "currency")
+    return fund if has_content else None
 
 
 def _pick_next_earnings(dates: list, today: date) -> str | None:

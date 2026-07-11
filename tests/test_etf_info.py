@@ -132,6 +132,7 @@ def test_main_fetches_etf_info_only_for_etfs(monkeypatch):
     monkeypatch.setattr(main_mod, "fetch_ticker_news", lambda s: [])
     monkeypatch.setattr(main_mod, "fetch_next_earnings", lambda s: None)
     monkeypatch.setattr(main_mod, "fetch_etf_info", fake_fetch_etf_info)
+    monkeypatch.setattr(main_mod, "fetch_fundamentals", lambda s: None)
     monkeypatch.setattr(main_mod, "run_macro_analysis", lambda client, headlines: [])
 
     def fake_batch(client, items, signals):

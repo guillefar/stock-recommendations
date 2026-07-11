@@ -243,6 +243,12 @@ Para cada tema:
         # judge the fund by what it holds instead of price action only.
         etf_block = _etf_block(ticker_data.get("etf_info"))
 
+        # Fundamentals (session 20): stocks get a valuation/profitability
+        # snapshot (P/E, yield, margins, growth, market cap) so the long-term
+        # thesis can rest on the business, not price action alone. Mutually
+        # exclusive with the ETF block by quote_type; omitted when unknown.
+        fundamentals_block = _fundamentals_block(ticker_data.get("fundamentals"))
+
         # Flip-stability (session 16): the model sees its own standing call and
         # how long it's held, and must name material new information to flip it.
         # Omitted on a ticker's first-ever run (no previous action exists).
@@ -277,7 +283,7 @@ Sentimiento Reddit:
 - Score promedio: {sent.get('avg_score', 0):.1f}
 - Posts más relevantes:
 {posts_text}
-{news_block}{earnings_block}{etf_block}
+{news_block}{earnings_block}{fundamentals_block}{etf_block}
 Contexto macro relevante:
 {macro_text}
 
@@ -632,6 +638,55 @@ def _etf_block(etf: dict | None) -> str:
         "sectorial/regional y sus costes, no como una acción individual):\n"
         + "\n".join(lines) + "\n"
     )
+
+
+def _fundamentals_block(fund: dict | None) -> str:
+    """Spanish prompt block with a stock's fundamentals; "" when unknown."""
+    if not fund:
+        return ""
+    lines = []
+    pes = []
+    if fund.get("trailing_pe") is not None:
+        pes.append(f"{fund['trailing_pe']:.1f} (trailing)")
+    if fund.get("forward_pe") is not None:
+        pes.append(f"{fund['forward_pe']:.1f} (forward)")
+    if pes:
+        lines.append("- P/E: " + " / ".join(pes))
+    if fund.get("market_cap") is not None:
+        currency = f" {fund['currency']}" if fund.get("currency") else ""
+        lines.append(f"- Capitalización: {_human_cap(fund['market_cap'])}{currency}")
+    if fund.get("dividend_yield_pct") is not None:
+        # Yahoo serves dividendYield already in percent units (3.43 = 3.43%).
+        lines.append(f"- Dividend yield: {fund['dividend_yield_pct']:.2f}%")
+    margins = []
+    if fund.get("profit_margin") is not None:
+        margins.append(f"neto {fund['profit_margin']:.1%}")
+    if fund.get("operating_margin") is not None:
+        margins.append(f"operativo {fund['operating_margin']:.1%}")
+    if margins:
+        lines.append("- Margen: " + ", ".join(margins))
+    growth = []
+    if fund.get("revenue_growth") is not None:
+        growth.append(f"ingresos {fund['revenue_growth']:+.1%}")
+    if fund.get("earnings_growth") is not None:
+        growth.append(f"beneficios {fund['earnings_growth']:+.1%}")
+    if growth:
+        lines.append("- Crecimiento interanual: " + ", ".join(growth))
+    if not lines:
+        return ""
+    return (
+        "\nFundamentales (valoración y rentabilidad del negocio — la tesis de "
+        "largo plazo debe apoyarse en esto, no solo en el precio):\n"
+        + "\n".join(lines) + "\n"
+    )
+
+
+def _human_cap(v: float) -> str:
+    """4631217307648 → '4.6T'; keeps the market cap readable in the prompt."""
+    for threshold, suffix in ((1e12, "T"), (1e9, "B"), (1e6, "M")):
+        if abs(v) >= threshold:
+            return f"{v / threshold:.1f}{suffix}"
+    return f"{v:.0f}"
 
 
 def _first_sentence(text: str) -> str:
