@@ -61,7 +61,7 @@
             "transformations": []
           }
         },
-        "description": "The most recent recommendation for every active ticker (not scoped by the time picker). 'ticker hit rate %' is that ticker's own historical 7-day hit rate; 'graded calls' is its sample size.",
+        "description": "The most recent recommendation for every active ticker (not scoped by the time picker). 'ticker hit rate %' is that ticker's own historical 30-day hit rate; 'graded calls' is its sample size.",
         "id": 1,
         "links": [],
         "title": "Latest call per ticker",
@@ -310,7 +310,7 @@
             "transformations": []
           }
         },
-        "description": "Weekly hit rate by horizon (Monday-anchored weeks). The light bars (right axis) show how many 7-day calls were decided that week — thin bars mean a noisy hit rate.",
+        "description": "Weekly hit rate by horizon (Monday-anchored weeks). 30d (green) is the headline; 7d is a short-term timing diagnostic. The light bars (right axis) show how many 30-day calls were decided that week — thin bars mean a noisy hit rate.",
         "id": 2,
         "links": [],
         "title": "Hit rate over time (weekly)",

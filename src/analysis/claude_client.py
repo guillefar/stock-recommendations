@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import time
 
 import anthropic
@@ -227,7 +228,7 @@ Para cada tema:
         news_titles = [n["title"] for n in (ticker_data.get("news") or []) if n.get("title")]
         news_block = (
             "\nNoticias recientes del ticker:\n"
-            + "\n".join(f"- {t}" for t in news_titles[:5])
+            + "\n".join(f"- {t}" for t in news_titles[:3])
             + "\n"
         ) if news_titles else ""
 
@@ -303,7 +304,7 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
 {{
   "action": "{"|".join(allowed)}",
   "confidence": 0.0,
-  "reasoning": "2-4 frases máximo, citando las señales concretas que pesaron y la tesis al horizonte de 1+ mes"
+  "reasoning": "máximo 2 frases, citando las señales concretas que pesaron y la tesis al horizonte de 1+ mes"
 }}"""
 
         return {
@@ -418,8 +419,11 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
         top_posts = analysis_data.get("top_reddit_posts", [])
         trending = analysis_data.get("trending_suggestions", [])
 
+        # Only the first sentence of each reasoning goes into the summary
+        # prompt — the full text is already stored per recommendation, and 63
+        # full reasonings dominate this call's input tokens.
         recs_text = "\n".join(
-            f"- {r['symbol']}: {r['action']} (confianza: {r.get('confidence', 0):.0%}) — {r.get('reasoning', '')}"
+            f"- {r['symbol']}: {r['action']} (confianza: {r.get('confidence', 0):.0%}) — {_first_sentence(r.get('reasoning', ''))}"
             for r in recommendations
         ) or "(ninguna)"
         flips_text = "\n".join(
@@ -590,3 +594,7 @@ def _structured_json(response, default):
 
 def _pct(v) -> str:
     return f"{v:+.1%}" if v is not None else "N/A"
+
+
+def _first_sentence(text: str) -> str:
+    return re.split(r"(?<=[.!?])\s", text.strip(), maxsplit=1)[0]

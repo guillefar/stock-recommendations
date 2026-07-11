@@ -20,17 +20,26 @@ def get_connection(cfg: Config) -> pymysql.Connection:
 
 
 def get_active_tickers(conn: pymysql.Connection) -> list[dict]:
-    """Returns tickers from active holdings (quantity > 0) and active watchlist entries."""
+    """Returns tickers from active holdings (quantity > 0) and active watchlist entries.
+
+    A ticker that is both held and watchlisted comes back once, as HOLDING
+    (the watchlist arm excludes held tickers).
+    """
     with conn.cursor() as cur:
         cur.execute("""
             SELECT DISTINCT
                 t.id, t.symbol, t.name, t.sector, t.industry,
-                t.currency, t.long_business_summary,
-                CASE WHEN h.ticker_id IS NOT NULL THEN 'HOLDING' ELSE 'WATCHLIST' END AS phase
+                t.currency, t.long_business_summary, 'HOLDING' AS phase
             FROM tickers t
+            JOIN holdings h ON h.ticker_id = t.id AND h.quantity > 0
+            UNION
+            SELECT DISTINCT
+                t.id, t.symbol, t.name, t.sector, t.industry,
+                t.currency, t.long_business_summary, 'WATCHLIST' AS phase
+            FROM tickers t
+            JOIN watchlist w ON w.ticker_id = t.id AND w.active = 1
             LEFT JOIN holdings h ON h.ticker_id = t.id AND h.quantity > 0
-            LEFT JOIN watchlist w ON w.ticker_id = t.id AND w.active = 1
-            WHERE h.ticker_id IS NOT NULL OR w.ticker_id IS NOT NULL
+            WHERE h.ticker_id IS NULL
         """)
         return cur.fetchall()
 

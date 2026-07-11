@@ -49,6 +49,23 @@ def _today() -> date:
     return date.today()
 
 
+def _pick_macro_signal_id(sector, macro_signals: list[dict], macro_signal_ids: list) -> int | None:
+    """Most relevant macro signal for a ticker's sector (stored as its link).
+
+    Prefers a signal whose direction for the sector is POSITIVE/NEGATIVE — a
+    NEUTRAL mention shouldn't shadow a signal that actually moves the sector.
+    Falls back to the first sector match when none is directional.
+    """
+    fallback = None
+    for i, signal in enumerate(macro_signals):
+        if sector in (signal.get("affected_sectors") or []):
+            if (signal.get("direction") or {}).get(sector) in ("POSITIVE", "NEGATIVE"):
+                return macro_signal_ids[i]
+            if fallback is None:
+                fallback = macro_signal_ids[i]
+    return fallback
+
+
 def main(dry_run: bool = False, force_retro: bool = False) -> None:
     logger.info(f"Starting stock-recommendations run (dry_run={dry_run})")
     cfg = load_config()
@@ -136,7 +153,7 @@ def main(dry_run: bool = False, force_retro: bool = False) -> None:
 
                 # Both collectors degrade to empty/None on error — news and
                 # earnings enrich the prompt but never fail the ticker.
-                news = fetch_ticker_news(symbol)[:5]
+                news = fetch_ticker_news(symbol)[:3]
                 next_earnings = fetch_next_earnings(symbol)
 
                 prev = previous_actions.get(ticker["id"])
@@ -183,12 +200,9 @@ def main(dry_run: bool = False, force_retro: bool = False) -> None:
                 confidence = recommendation.get("confidence", 0)
                 logger.info(f"{symbol}: {action} (confidence={confidence:.0%})")
 
-                # Find most relevant macro signal for this ticker's sector
-                relevant_macro_id = None
-                for i, signal in enumerate(macro_signals):
-                    if ticker_data.get("sector") in (signal.get("affected_sectors") or []):
-                        relevant_macro_id = macro_signal_ids[i]
-                        break
+                relevant_macro_id = _pick_macro_signal_id(
+                    ticker_data.get("sector"), macro_signals, macro_signal_ids
+                )
 
                 conn.ping(reconnect=True)
                 write_recommendation(

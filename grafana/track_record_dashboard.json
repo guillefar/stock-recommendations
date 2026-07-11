@@ -61,7 +61,7 @@
             "transformations": []
           }
         },
-        "description": "CORRECT ÷ (CORRECT+INCORRECT) across all graded 7-day outcomes in range.",
+        "description": "CORRECT ÷ (CORRECT+INCORRECT) across all graded 30-day outcomes in range — the long-term headline metric.",
         "id": 1,
         "links": [],
         "title": "Overall hit rate (30d)",
@@ -151,7 +151,7 @@
             "transformations": []
           }
         },
-        "description": "Share of graded 7-day calls that were not neutral.",
+        "description": "Share of graded 30-day calls that were not neutral.",
         "id": 2,
         "links": [],
         "title": "Decisiveness (30d)",
@@ -233,7 +233,7 @@
             "transformations": []
           }
         },
-        "description": "Count of 7-day outcomes graded CORRECT or INCORRECT (the hit-rate sample).",
+        "description": "Count of 30-day outcomes graded CORRECT or INCORRECT (the hit-rate sample).",
         "id": 3,
         "links": [],
         "title": "Decided calls (30d)",
@@ -352,7 +352,7 @@
             "transformations": []
           }
         },
-        "description": "Weekly hit rate by horizon (Monday-anchored weeks). The light bars (right axis) show how many 7-day calls were decided that week — thin bars mean a noisy hit rate.",
+        "description": "Weekly hit rate by horizon (Monday-anchored weeks). 30d (green) is the headline; 7d is a short-term timing diagnostic. The light bars (right axis) show how many 30-day calls were decided that week — thin bars mean a noisy hit rate.",
         "id": 5,
         "links": [],
         "title": "Hit rate over time (weekly)",
