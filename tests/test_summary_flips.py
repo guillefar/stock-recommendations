@@ -102,16 +102,28 @@ def _run_main(monkeypatch, previous_actions, captured):
 
 
 def test_main_reports_flip_when_action_changed(monkeypatch):
+    from datetime import datetime
+
     captured = {}
-    _run_main(monkeypatch, previous_actions={1: "BUY"}, captured=captured)
+    _run_main(
+        monkeypatch,
+        previous_actions={1: {"action": "BUY", "held_since": datetime(2026, 7, 1, 10, 0)}},
+        captured=captured,
+    )
     assert captured["action_flips"] == [
         {"symbol": "AAPL", "prev_action": "BUY", "new_action": "WATCH"}
     ]
 
 
 def test_main_no_flip_when_action_unchanged_or_first_run(monkeypatch):
+    from datetime import datetime
+
     captured = {}
-    _run_main(monkeypatch, previous_actions={1: "WATCH"}, captured=captured)
+    _run_main(
+        monkeypatch,
+        previous_actions={1: {"action": "WATCH", "held_since": datetime(2026, 7, 1, 10, 0)}},
+        captured=captured,
+    )
     assert captured["action_flips"] == []
 
     captured = {}

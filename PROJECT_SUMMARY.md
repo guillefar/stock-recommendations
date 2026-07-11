@@ -59,9 +59,9 @@ src/
 4. **Claude call #1** — macro signal extraction → `macro_signals`. Wrapped in try/except: on failure the run continues with zero macro signals (a Claude outage must not stop price collection).
 5. Extract per-ticker Reddit mentions; match by `$TICKER` and uppercase-word patterns against known symbols.
 6. **Per-ticker, in three phases:**
-   - **6a — collect:** technicals from yfinance (+ upsert today's price into `price_checks` before any Claude involvement), Reddit sentiment summary, news headlines, next earnings date. Failures are isolated per ticker.
-   - **6b — one Message Batches call** with all N per-ticker requests (50% token discount; polled up to 45 min, then canceled).
-   - **6c — persist:** each parsed recommendation → `recommendations` (+ `reddit_mentions` for matched posts). Unparseable/errored entries count as failures; nothing is persisted for them. Action flips vs each ticker's previous stored recommendation are collected here (`get_latest_actions` is read just before this phase, S17).
+   - **6a — collect:** technicals from yfinance (+ upsert today's price into `price_checks` before any Claude involvement), Reddit sentiment summary, news headlines, next earnings date, and the ticker's standing call (`prev_action` + `prev_held_days`, from `get_latest_actions` — read before any of this run's rows land). Failures are isolated per ticker.
+   - **6b — one Message Batches call** with all N per-ticker requests (50% token discount; polled up to 45 min, then canceled). Since session 16 each prompt shows "Recomendación vigente: X (mantenida N días)" and requires naming material new information to reverse it (flip-stability).
+   - **6c — persist:** each parsed recommendation → `recommendations` (+ `reddit_mentions` for matched posts). Unparseable/errored entries count as failures; nothing is persisted for them. Action flips vs each ticker's previous stored recommendation are collected here (S17).
 7. Write Reddit mentions for posts with no matched ticker (NULL-ticker rows are deduped by a pre-SELECT, since the UNIQUE key can't compare NULLs).
 8. Detect trending unknown tickers (filter: score > 100, mentions > 3) and upsert them into `trending_tickers`.
 9. **Claude call #2** — daily summary → `daily_market_summary`; the prompt includes the run's action flips ("Cambios de recomendación vs la corrida anterior") so the summary calls them out. On failure the summary returns `None` and nothing is written (never an error placeholder).

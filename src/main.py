@@ -92,6 +92,13 @@ def main(dry_run: bool = False, force_retro: bool = False) -> None:
         # ── 5. Extract Reddit ticker mentions ────────────────────────────────
         ticker_mentions = extract_ticker_mentions(reddit_posts, known_symbols)
 
+        # Previous actions must be read before this run's rows land, so a flip
+        # is "vs the immediately-preceding run" (S17 — surfaced in the summary).
+        # Read before 6a so each ticker prompt can carry its previous action +
+        # how long it's been held (flip-stability reinforcement, session 16).
+        conn.ping(reconnect=True)
+        previous_actions = get_latest_actions(conn)
+
         # ── 6a. Per-ticker data collection ───────────────────────────────────
         # Failures are isolated per ticker: log, count, and move on, so one bad
         # ticker can't abort the unattended run. The price check is written here
@@ -132,12 +139,18 @@ def main(dry_run: bool = False, force_retro: bool = False) -> None:
                 news = fetch_ticker_news(symbol)[:5]
                 next_earnings = fetch_next_earnings(symbol)
 
+                prev = previous_actions.get(ticker["id"])
                 prepared.append({
                     **ticker,
                     "technical": technical,
                     "sentiment": sentiment_summary,
                     "news": news,
                     "next_earnings": next_earnings,
+                    "prev_action": prev["action"] if prev else None,
+                    "prev_held_days": (
+                        (_today() - prev["held_since"].date()).days
+                        if prev and prev.get("held_since") else None
+                    ),
                 })
             except Exception:
                 logger.exception(f"{symbol}: data collection failed — continuing with remaining tickers")
@@ -155,10 +168,6 @@ def main(dry_run: bool = False, force_retro: bool = False) -> None:
                 logger.exception("Batch recommendation call failed — no recommendations this run")
 
         # ── 6c. Persist recommendations ───────────────────────────────────────
-        # Previous actions must be read before this run's rows land, so a flip
-        # is "vs the immediately-preceding run" (S17 — surfaced in the summary).
-        conn.ping(reconnect=True)
-        previous_actions = get_latest_actions(conn)
         action_flips = []
 
         for ticker_data in prepared:
@@ -192,10 +201,10 @@ def main(dry_run: bool = False, force_retro: bool = False) -> None:
 
                 all_recommendations.append({"symbol": symbol, **recommendation})
 
-                prev_action = previous_actions.get(ticker_data["id"])
-                if prev_action and prev_action != action:
+                prev = previous_actions.get(ticker_data["id"])
+                if prev and prev["action"] != action:
                     action_flips.append(
-                        {"symbol": symbol, "prev_action": prev_action, "new_action": action}
+                        {"symbol": symbol, "prev_action": prev["action"], "new_action": action}
                     )
             except Exception:
                 logger.exception(f"{symbol}: persistence failed — continuing with remaining tickers")

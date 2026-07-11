@@ -43,7 +43,9 @@ _RECOMMENDATION_SYSTEM = (
     "Cuando la evidencia lo respalda, das recomendaciones claras y decisivas — "
     "incluyendo BUY y SELL — y reservas HOLD/WATCH/AVOID para cuando la evidencia "
     "es mixta, débil o insuficiente. No te refugies por defecto en la opción "
-    "neutral, y no cambies de opinión por ruido de corto plazo. "
+    "neutral, y no cambies de opinión por ruido de corto plazo: revertir una "
+    "recomendación reciente exige información nueva y material, no un movimiento "
+    "de precio de pocos días. "
     "Respondes en JSON estricto con el schema dado, sin texto adicional."
 )
 
@@ -235,6 +237,24 @@ Para cada tema:
             "considera el riesgo del evento en la acción y el confidence.\n"
         ) if next_earnings else ""
 
+        # Flip-stability (session 16): the model sees its own standing call and
+        # how long it's held, and must name material new information to flip it.
+        # Omitted on a ticker's first-ever run (no previous action exists).
+        prev_action = ticker_data.get("prev_action")
+        held_days = ticker_data.get("prev_held_days")
+        held_txt = (
+            f" (mantenida {held_days} día{'' if held_days == 1 else 's'})"
+            if held_days is not None else ""
+        )
+        prev_block = (
+            f"\nRecomendación vigente: {prev_action}{held_txt}. Cambiarla exige nombrar "
+            "en el reasoning la información nueva y material que invalida la tesis "
+            "anterior (earnings/guidance, ruptura técnica sostenida, cambio macro "
+            "estructural). Si no existe esa información, mantén la recomendación "
+            "vigente: un movimiento de precio de pocos días es ruido, no una tesis "
+            "nueva.\n"
+        ) if prev_action else ""
+
         user_msg = f"""Ticker: {ticker_data['symbol']} ({ticker_data.get('name', '')}, sector: {ticker_data.get('sector', 'N/A')})
 Posición actual: {ticker_data.get('phase', 'sin posición')}
 
@@ -259,7 +279,7 @@ Horizonte de inversión: mínimo un mes, típicamente un año o más. Evalúa la
 de fondo a ese plazo; usa los indicadores de corto plazo (RSI, cambios 1d/7d) solo
 como timing de entrada/salida, nunca como razón principal. Un movimiento semanal
 no invalida una tesis de meses.
-
+{prev_block}
 Reglas de decisión según la posición:
 - Si YA tienes posición (HOLDING): elige SELL cuando la tesis de largo plazo se
   deterioró (deterioro técnico sostenido, ruptura de SMAs/soportes relevantes, macro

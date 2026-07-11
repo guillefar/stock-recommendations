@@ -42,8 +42,13 @@ def get_known_symbols(conn: pymysql.Connection) -> set[str]:
         return {row["symbol"] for row in cur.fetchall()}
 
 
-def get_latest_actions(conn: pymysql.Connection) -> dict[int, str]:
+def get_latest_actions(conn: pymysql.Connection) -> dict[int, dict]:
     """Most recent stored action per ticker — the previous run's view.
+
+    Returns {ticker_id: {"action": str, "held_since": datetime}} where
+    `held_since` is the start of the current consecutive streak of that action
+    (the first run after the ticker last held a *different* action) — it feeds
+    the "mantenida N días" line in the ticker prompt (flip-stability).
 
     Must be read before this run's recommendations are written, so a flip
     means "changed vs the immediately-preceding run" (same semantics as the
@@ -51,7 +56,17 @@ def get_latest_actions(conn: pymysql.Connection) -> dict[int, str]:
     """
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT r.ticker_id, r.action
+            SELECT r.ticker_id, r.action,
+                (SELECT MIN(r2.generated_at)
+                 FROM recommendations r2
+                 WHERE r2.ticker_id = r.ticker_id
+                   AND r2.generated_at > COALESCE(
+                       (SELECT MAX(r3.generated_at)
+                        FROM recommendations r3
+                        WHERE r3.ticker_id = r.ticker_id
+                          AND r3.action <> r.action),
+                       '1970-01-01')
+                ) AS held_since
             FROM recommendations r
             JOIN (
                 SELECT ticker_id, MAX(generated_at) AS latest_at
@@ -59,7 +74,10 @@ def get_latest_actions(conn: pymysql.Connection) -> dict[int, str]:
                 GROUP BY ticker_id
             ) m ON m.ticker_id = r.ticker_id AND m.latest_at = r.generated_at
         """)
-        return {row["ticker_id"]: row["action"] for row in cur.fetchall()}
+        return {
+            row["ticker_id"]: {"action": row["action"], "held_since": row["held_since"]}
+            for row in cur.fetchall()
+        }
 
 
 def get_week_outcomes(
