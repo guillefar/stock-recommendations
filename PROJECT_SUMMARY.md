@@ -4,7 +4,7 @@ A short, structural overview of the codebase. For design rationale and decisions
 
 ## What it does
 
-Automated pipeline that generates daily BUY/SELL/HOLD/WATCH/AVOID recommendations for the user's stock portfolio by combining:
+Automated pipeline that generates BUY/SELL/HOLD/WATCH/AVOID recommendations (Mon/Wed/Fri) for the user's stock portfolio by combining:
 
 - **Technicals** — yfinance prices + pandas-computed indicators (RSI, SMA20/50/200, % changes, 52w position, volume ratio).
 - **Reddit sentiment** — `/r/stocks` hot posts; mentions of known tickers and detection of trending unknown tickers.
@@ -72,7 +72,7 @@ Total Claude API interactions per run: 2 plain calls (macro, summary; +1 retro o
 ## Infrastructure
 
 - **Runtime**: Python 3.11 (CI) / 3.14 (local). Pinned deps in [requirements.txt](requirements.txt); [tests.yml](.github/workflows/tests.yml) runs pytest on pushes to `main` and on PRs.
-- **CI**: [.github/workflows/run_recommendations.yml](.github/workflows/run_recommendations.yml) — cron **once per weekday at 10:00 UTC** (12:00 CEST / 11:00 CET — GitHub cron ignores DST) + `workflow_dispatch`; job timeout 60 min, single-flight concurrency group. A second step runs `evaluate_outcomes` even if the main step failed (needs only DB secrets, no API key).
+- **CI**: [.github/workflows/run_recommendations.yml](.github/workflows/run_recommendations.yml) — cron **Mon/Wed/Fri at 10:00 UTC** (12:00 CEST / 11:00 CET — GitHub cron ignores DST; Friday must stay — it triggers the weekly retrospective) + `workflow_dispatch`; job timeout 60 min, single-flight concurrency group. A second step runs `evaluate_outcomes` even if the main step failed (needs only DB secrets, no API key).
 - **Secrets** (GitHub Actions): `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`, `ANTHROPIC_API_KEY`, `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`.
 - **Dashboards** (datasource uid `cfadv004ogglcf`, MySQL; all schema-v2 `elements`/`layout`; import via Dashboards → New → Import):
   - [grafana/recommendations_dashboard.json](grafana/recommendations_dashboard.json) — the original overview (schema-v2 export).

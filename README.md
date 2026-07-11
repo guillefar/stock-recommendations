@@ -38,9 +38,10 @@ Required env vars: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`,
 ## Scheduling (GitHub Actions)
 
 - [.github/workflows/run_recommendations.yml](.github/workflows/run_recommendations.yml)
-  — runs the pipeline once per weekday at **12:00 CEST (10:00 UTC)**, then grades
-  outcomes. GitHub cron is UTC and ignores DST (fires 11:00 local in CET winter).
-  Needs the env vars above as repository secrets.
+  — runs the pipeline on **Monday, Wednesday and Friday at 12:00 CEST (10:00
+  UTC)**, then grades outcomes. Friday must stay in the schedule: it triggers
+  the weekly retrospective. GitHub cron is UTC and ignores DST (fires 11:00
+  local in CET winter). Needs the env vars above as repository secrets.
 - [.github/workflows/tests.yml](.github/workflows/tests.yml) — runs `pytest` on
   pushes to `main` and on every PR.
 

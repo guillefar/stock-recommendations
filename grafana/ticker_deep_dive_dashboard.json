@@ -23,6 +23,36 @@
           "version": "v0"
         }
       }
+    },
+    {
+      "kind": "AnnotationQuery",
+      "spec": {
+        "builtIn": false,
+        "enable": true,
+        "hide": false,
+        "iconColor": "orange",
+        "name": "Action flips",
+        "filter": {
+          "exclude": false,
+          "ids": [
+            5
+          ]
+        },
+        "query": {
+          "datasource": {
+            "name": "cfadv004ogglcf"
+          },
+          "group": "mysql",
+          "kind": "DataQuery",
+          "spec": {
+            "editorMode": "code",
+            "format": "table",
+            "rawQuery": true,
+            "rawSql": "SELECT UNIX_TIMESTAMP(r2.generated_at) AS time,\n  CONCAT(t.symbol, ': ', r1.action, ' → ', r2.action, ' (conf ', ROUND(r2.confidence*100, 0), '%)') AS text,\n  CONCAT_WS(',', t.symbol, r2.action) AS tags\nFROM recommendations r2\nJOIN recommendations r1\n  ON r1.ticker_id = r2.ticker_id\n AND r1.generated_at = (\n   SELECT MAX(r3.generated_at) FROM recommendations r3\n   WHERE r3.ticker_id = r2.ticker_id AND r3.generated_at < r2.generated_at\n )\n AND r1.action <> r2.action\nJOIN tickers t ON t.id = r2.ticker_id\nWHERE t.symbol IN ($ticker) AND $__timeFilter(r2.generated_at)\nORDER BY time"
+          },
+          "version": "v0"
+        }
+      }
     }
   ],
   "cursorSync": "Off",
@@ -307,7 +337,7 @@
             },
             "options": {
               "mode": "markdown",
-              "content": "### How to read this dashboard\n\nUse the **Ticker** selector (top-left) to pick one or more stocks/ETFs — every panel scopes to the selection and the time picker.\n\n**Hit rate = CORRECT ÷ (CORRECT + INCORRECT)** at the **30-day** horizon (the long-term headline metric); *neutral calls are excluded*, so a single ticker often has a small sample — check *Decided calls* before trusting the rate.\n\n- The **price history** starts 2026-06-12 (when in-repo daily price collection began).\n- **Hit rate by horizon** fills in as outcomes mature (first 90d ≈ Oct 2026, first 1y ≈ May 2027); grading bands widen with the horizon (a 1-year BUY must beat +15%, not +4%).\n- **avg return %** is the mean forward return of graded calls — direction-blind (a correct SELL can coexist with a positive underlying return).\n- The **call history** table shows every call in range with its 30-day grade (empty verdict = not matured yet or no exit price).",
+              "content": "### How to read this dashboard\n\nUse the **Ticker** selector (top-left) to pick one or more stocks/ETFs — every panel scopes to the selection and the time picker.\n\n**Hit rate = CORRECT ÷ (CORRECT + INCORRECT)** at the **30-day** horizon (the long-term headline metric); *neutral calls are excluded*, so a single ticker often has a small sample — check *Decided calls* before trusting the rate.\n\n- The **price history** starts 2026-06-12 (when in-repo daily price collection began). Orange markers flag **action flips** (the call changed vs the previous run) — hover for old → new action; unchanged daily calls are not marked.\n- **Hit rate by horizon** fills in as outcomes mature (first 90d ≈ Oct 2026, first 1y ≈ May 2027); grading bands widen with the horizon (a 1-year BUY must beat +15%, not +4%).\n- **avg return %** is the mean forward return of graded calls — direction-blind (a correct SELL can coexist with a positive underlying return).\n- The **call history** table shows every call in range with its 30-day grade (empty verdict = not matured yet or no exit price).",
               "code": {
                 "language": "plaintext",
                 "showLineNumbers": false,
@@ -352,7 +382,7 @@
             "transformations": []
           }
         },
-        "description": "Daily observed price per selected ticker (from price_checks — collected since 2026-06-12; weekdays only). Most readable with a handful of tickers; scales differ across symbols.",
+        "description": "Daily observed price per selected ticker (from price_checks — collected since 2026-06-12; weekdays only). Orange markers are action flips (the call changed vs the previous run) — hover for old → new action and confidence. Most readable with a handful of tickers; scales differ across symbols.",
         "id": 5,
         "links": [],
         "title": "Price history",
