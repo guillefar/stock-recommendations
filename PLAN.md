@@ -54,13 +54,13 @@ Previous state (session 06, Wave 1.5): grading semantics were decided and implem
 
 ## In progress
 
-- **`feat/session-15-s5-retro` awaits merge** (S5 retrospective + flips panel + trending persistence + S18/S13). Merge gate: user re-imports the digest dashboard (3 new panels) from the session-15 worktree and approves; the first post-merge **Friday** run (10:00 UTC) writes the first real retrospective — verify the `weekly_retrospectives` row + panel-12. Migrations 004/005 are **already applied** to the DB.
+- **Session 15 is merged** (`main` @ `b30eb88`, ff-merged 2026-07-11 on user request). Pending production verification: the Mon 2026-07-13 run (first with trending persistence on merged main; note cost ~$0.10 and the flip count) and the first **Friday** run (2026-07-17) writing the first real `weekly_retrospectives` row — verify the log line, the row, and digest panel-12. The user should import the digest dashboard (3 new panels: 12 retro / 13 flips-per-run / 14 trending) — main's copy is now current, so either path works. Migrations 004/005 are **already applied** to the DB.
 - **Flip-stability watch (data collection)**: digest panel-13 now charts flips/run — check after a week whether the post-reorientation flip volume settled (11 on 07-10; if it stays ≥10, reinforce the no-noise-flips prompt instruction).
 - **Wave 4 (product features) — nearly done.** Delivered: track-record dashboard (s10), predictions dashboard + consolidation (s12), S17 flips-in-summary (s13), trending-unknown persistence + S5 weekly retrospective (s15). **Still open:** batched Reddit sentiment [gated on creds]. Other open items: token trims (HANDOFF_12 caveats), fold-in cleanups below.
 
 ## Done (session 15 — 2026-07-11, S14 merge + S5 retrospective + Wave-4 close)
 
-On branch **`feat/session-15-s5-retro`** (off `main` @ `4240120`), worktree `.claude/worktrees/session-15-s5-retro`. Pushed, **not merged**.
+On branch **`feat/session-15-s5-retro`** (off `main` @ `4240120`), worktree `.claude/worktrees/session-15-s5-retro`. **Merged 2026-07-11** → `main` @ `b30eb88`.
 
 - **Verified S17 in production** (step 1 of HANDOFF_14): run `29092211473` (2026-07-10 12:19 UTC) logged the 11-flip `Action flips vs previous run:` line and the stored summary explicitly narrated the changes; 63 ok / 0 failed, $0.0845.
 - **Merged session 14** (`feat/session-14-long-term` ff → `main` @ `4240120`, pushed) after the user imported all three dashboards from the worktree path and approved.
