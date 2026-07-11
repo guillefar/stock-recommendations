@@ -13,7 +13,12 @@ from src.analysis.recommendation import run_ticker_recommendations_batch
 from src.analysis.retrospective import build_retro_data, run_weekly_retrospective
 from src.analysis.summary import run_daily_summary
 from src.collectors.news import fetch_macro_headlines
-from src.collectors.prices import fetch_next_earnings, fetch_prices_and_indicators, fetch_ticker_news
+from src.collectors.prices import (
+    fetch_etf_info,
+    fetch_next_earnings,
+    fetch_prices_and_indicators,
+    fetch_ticker_news,
+)
 from src.collectors.reddit import extract_ticker_mentions, fetch_reddit_posts, find_trending_unknown
 from src.config import load_config
 from src.db import (
@@ -151,10 +156,16 @@ def main(dry_run: bool = False, force_retro: bool = False) -> None:
                     ],
                 }
 
-                # Both collectors degrade to empty/None on error — news and
-                # earnings enrich the prompt but never fail the ticker.
+                # These collectors degrade to empty/None on error — news,
+                # earnings and ETF profile enrich the prompt but never fail
+                # the ticker. The ETF fetch only runs for actual ETFs
+                # (quote_type from the tickers table), so stocks pay nothing.
                 news = fetch_ticker_news(symbol)[:3]
                 next_earnings = fetch_next_earnings(symbol)
+                etf_info = (
+                    fetch_etf_info(symbol)
+                    if ticker.get("quote_type") == "ETF" else None
+                )
 
                 prev = previous_actions.get(ticker["id"])
                 prepared.append({
@@ -163,6 +174,7 @@ def main(dry_run: bool = False, force_retro: bool = False) -> None:
                     "sentiment": sentiment_summary,
                     "news": news,
                     "next_earnings": next_earnings,
+                    "etf_info": etf_info,
                     "prev_action": prev["action"] if prev else None,
                     "prev_held_days": (
                         (_today() - prev["held_since"].date()).days

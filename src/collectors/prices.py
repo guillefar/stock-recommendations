@@ -90,6 +90,63 @@ def fetch_next_earnings(symbol: str) -> str | None:
         return None
 
 
+def fetch_etf_info(symbol: str) -> dict | None:
+    """ETF profile (family, expense ratio, top holdings, sector mix) via yfinance.
+
+    Only called for tickers whose `quote_type` is ETF (from the tickers table).
+    Returns None on any fetch error or when Yahoo has no fund data — the prompt
+    block is optional enrichment and must never fail the ticker.
+    """
+    try:
+        fd = yf.Ticker(symbol).funds_data
+        overview = fd.fund_overview
+        try:
+            operations = fd.fund_operations
+        except Exception:
+            operations = None
+        return _build_etf_info(
+            overview, operations, fd.top_holdings, fd.sector_weightings, symbol
+        )
+    except Exception as e:
+        logger.warning(f"Error fetching ETF info for {symbol}: {e}")
+        return None
+
+
+def _build_etf_info(overview, operations, holdings, sector_weights, symbol: str) -> dict | None:
+    """Normalizes yfinance funds_data pieces into the prompt's etf_info shape.
+
+    Yahoo serves an expense ratio of 0.0 for many UCITS ETFs where the real
+    figure is unknown — treated as missing rather than shown as 0.00%.
+    """
+    info = {
+        "family": (overview or {}).get("family"),
+        "category": (overview or {}).get("categoryName"),
+        "expense_ratio": None,
+        "top_holdings": [],
+        "sector_weights": {},
+    }
+    try:
+        ratio = operations.loc["Annual Report Expense Ratio", symbol]
+        info["expense_ratio"] = float(ratio) if ratio and not pd.isna(ratio) else None
+    except Exception:
+        pass
+    if holdings is not None:
+        for held_symbol, row in holdings.head(5).iterrows():
+            pct = row.get("Holding Percent")
+            info["top_holdings"].append({
+                "symbol": str(held_symbol),
+                "name": row.get("Name") or "",
+                "pct": float(pct) if pct is not None and not pd.isna(pct) else None,
+            })
+    info["sector_weights"] = {
+        sector: round(float(weight), 4)
+        for sector, weight in (sector_weights or {}).items()
+        if weight and float(weight) > 0
+    }
+    has_content = info["family"] or info["top_holdings"] or info["sector_weights"]
+    return info if has_content else None
+
+
 def _pick_next_earnings(dates: list, today: date) -> str | None:
     """Earliest earnings date at/after today, ISO-formatted; None if none."""
     normalized = []

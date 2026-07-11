@@ -224,7 +224,7 @@ Para cada tema:
         )
 
         # Optional blocks: omitted entirely when there's nothing to show, so
-        # tickers without news/earnings (e.g. ETFs) keep the original prompt.
+        # tickers without news/earnings/ETF data keep the original prompt.
         news_titles = [n["title"] for n in (ticker_data.get("news") or []) if n.get("title")]
         news_block = (
             "\nNoticias recientes del ticker:\n"
@@ -237,6 +237,11 @@ Para cada tema:
             f"\nPróximo reporte de earnings: {next_earnings} — si es inminente, "
             "considera el riesgo del evento en la acción y el confidence.\n"
         ) if next_earnings else ""
+
+        # ETF profile (session 18): ETFs used to run on technicals alone —
+        # no sector, news or earnings. The composition block lets the model
+        # judge the fund by what it holds instead of price action only.
+        etf_block = _etf_block(ticker_data.get("etf_info"))
 
         # Flip-stability (session 16): the model sees its own standing call and
         # how long it's held, and must name material new information to flip it.
@@ -272,7 +277,7 @@ Sentimiento Reddit:
 - Score promedio: {sent.get('avg_score', 0):.1f}
 - Posts más relevantes:
 {posts_text}
-{news_block}{earnings_block}
+{news_block}{earnings_block}{etf_block}
 Contexto macro relevante:
 {macro_text}
 
@@ -594,6 +599,39 @@ def _structured_json(response, default):
 
 def _pct(v) -> str:
     return f"{v:+.1%}" if v is not None else "N/A"
+
+
+def _etf_block(etf: dict | None) -> str:
+    """Spanish prompt block describing an ETF's composition; "" when unknown."""
+    if not etf:
+        return ""
+    lines = []
+    if etf.get("family"):
+        lines.append(f"- Gestora: {etf['family']}")
+    if etf.get("category"):
+        lines.append(f"- Categoría: {etf['category']}")
+    if etf.get("expense_ratio"):
+        lines.append(f"- Ratio de gastos anual: {etf['expense_ratio']:.2%}")
+    holdings = [h for h in etf.get("top_holdings") or [] if h.get("symbol")]
+    if holdings:
+        lines.append("- Principales posiciones: " + ", ".join(
+            f"{h['symbol']} {h['pct']:.1%}" if h.get("pct") is not None else h["symbol"]
+            for h in holdings[:5]
+        ))
+    sectors = sorted(
+        (etf.get("sector_weights") or {}).items(), key=lambda kv: kv[1], reverse=True
+    )[:5]
+    if sectors:
+        lines.append("- Distribución sectorial: " + ", ".join(
+            f"{sector} {weight:.0%}" for sector, weight in sectors
+        ))
+    if not lines:
+        return ""
+    return (
+        "\nPerfil del ETF (fondo diversificado: evalúa la tesis por su exposición "
+        "sectorial/regional y sus costes, no como una acción individual):\n"
+        + "\n".join(lines) + "\n"
+    )
 
 
 def _first_sentence(text: str) -> str:

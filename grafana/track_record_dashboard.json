@@ -61,7 +61,7 @@
             "transformations": []
           }
         },
-        "description": "CORRECT ÷ (CORRECT+INCORRECT) across all graded 30-day outcomes in range — the long-term headline metric.",
+        "description": "CORRECT \u00f7 (CORRECT+INCORRECT) across all graded 30-day outcomes in range \u2014 the long-term headline metric.",
         "id": 1,
         "links": [],
         "title": "Overall hit rate (30d)",
@@ -307,7 +307,7 @@
             },
             "options": {
               "mode": "markdown",
-              "content": "### How to read this dashboard\n\n**Hit rate = CORRECT ÷ (CORRECT + INCORRECT)** — *neutral calls are excluded*, so a low hit rate and a low sample size often go together.\n\n- 🟢 **CORRECT** — the call's thesis played out within the horizon.\n- ⚪ **NEUTRAL** — the move was too small to judge (not counted in the hit rate).\n- 🔴 **INCORRECT** — the price moved against the call.\n\n**Decisiveness** = share of graded calls that were *not* neutral. All tiles and tables use the **30-day** horizon (long-term orientation); 7d appears on the trend chart as a short-term timing diagnostic. 90d and 1y series fill in as outcomes mature (first 90d ≈ Oct 2026, first 1y ≈ May 2027). Grading bands widen with the horizon (e.g. a 1-year BUY must beat +15%, not +4%). Use the time picker (top-right) to scope a period.",
+              "content": "### How to read this dashboard\n\n**Hit rate = CORRECT \u00f7 (CORRECT + INCORRECT)** \u2014 *neutral calls are excluded*, so a low hit rate and a low sample size often go together.\n\n- \ud83d\udfe2 **CORRECT** \u2014 the call's thesis played out within the horizon.\n- \u26aa **NEUTRAL** \u2014 the move was too small to judge (not counted in the hit rate).\n- \ud83d\udd34 **INCORRECT** \u2014 the price moved against the call.\n\n**Decisiveness** = share of graded calls that were *not* neutral. All tiles and tables use the **30-day** horizon (long-term orientation); 7d appears on the trend chart as a short-term timing diagnostic. 90d and 1y series fill in as outcomes mature (first 90d \u2248 Oct 2026, first 1y \u2248 May 2027). Grading bands widen with the horizon (e.g. a 1-year BUY must beat +15%, not +4%). In the sector table, **ETF** groups all exchange-traded funds (they have no sector of their own). Use the time picker (top-right) to scope a period.",
               "code": {
                 "language": "plaintext",
                 "showLineNumbers": false,
@@ -352,7 +352,7 @@
             "transformations": []
           }
         },
-        "description": "Weekly hit rate by horizon (Monday-anchored weeks). 30d (green) is the headline; 7d is a short-term timing diagnostic. The light bars (right axis) show how many 30-day calls were decided that week — thin bars mean a noisy hit rate.",
+        "description": "Weekly hit rate by horizon (Monday-anchored weeks). 30d (green) is the headline; 7d is a short-term timing diagnostic. The light bars (right axis) show how many 30-day calls were decided that week \u2014 thin bars mean a noisy hit rate.",
         "id": 5,
         "links": [],
         "title": "Hit rate over time (weekly)",
@@ -555,7 +555,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT\n  COALESCE(NULLIF(t.sector_disp,''),'(unknown)') AS sector,\n  COUNT(*)                    AS total,\n  SUM(o.verdict='CORRECT')    AS correct,\n  SUM(o.verdict='INCORRECT')  AS incorrect,\n  SUM(o.verdict='NEUTRAL')    AS neutral,\n  ROUND(100*SUM(o.verdict='CORRECT')/\n    NULLIF(SUM(o.verdict IN('CORRECT','INCORRECT')),0),0) AS `hit rate %`\nFROM recommendation_outcomes o\nJOIN tickers t ON o.ticker_id=t.id\nWHERE o.horizon_days=30 AND $__timeFilter(o.generated_at)\nGROUP BY COALESCE(NULLIF(t.sector_disp,''),'(unknown)')\nHAVING SUM(o.verdict IN('CORRECT','INCORRECT')) >= 10\nORDER BY `hit rate %` DESC, total DESC"
+                      "rawSql": "SELECT\n  COALESCE(NULLIF(t.sector_disp,''), CASE WHEN t.quote_type='ETF' THEN 'ETF' END, '(unknown)') AS sector,\n  COUNT(*)                    AS total,\n  SUM(o.verdict='CORRECT')    AS correct,\n  SUM(o.verdict='INCORRECT')  AS incorrect,\n  SUM(o.verdict='NEUTRAL')    AS neutral,\n  ROUND(100*SUM(o.verdict='CORRECT')/\n    NULLIF(SUM(o.verdict IN('CORRECT','INCORRECT')),0),0) AS `hit rate %`\nFROM recommendation_outcomes o\nJOIN tickers t ON o.ticker_id=t.id\nWHERE o.horizon_days=30 AND $__timeFilter(o.generated_at)\nGROUP BY COALESCE(NULLIF(t.sector_disp,''), CASE WHEN t.quote_type='ETF' THEN 'ETF' END, '(unknown)')\nHAVING SUM(o.verdict IN('CORRECT','INCORRECT')) >= 10\nORDER BY `hit rate %` DESC, total DESC"
                     },
                     "version": "v0"
                   },
@@ -567,7 +567,7 @@
             "transformations": []
           }
         },
-        "description": "Which sectors the model reads well. Sectors with fewer than 10 decided calls are hidden. '(unknown)' is mostly ETFs / non-US tickers with no sector metadata.",
+        "description": "Which sectors the model reads well. Sectors with fewer than 10 decided calls are hidden. ETFs (no sector of their own) are grouped under 'ETF'; '(unknown)' is the remaining tickers with no sector metadata.",
         "id": 6,
         "links": [],
         "title": "Hit rate by sector (30d)",
@@ -752,7 +752,7 @@
             "transformations": []
           }
         },
-        "description": "Outcomes bucketed by the ticker's RSI when the call was made — surfaces the technical regime behind correct calls.",
+        "description": "Outcomes bucketed by the ticker's RSI when the call was made \u2014 surfaces the technical regime behind correct calls.",
         "id": 7,
         "links": [],
         "title": "Hit rate by RSI band (at call time, 30d)",
@@ -1033,6 +1033,6 @@
     "hideTimepicker": false,
     "timezone": "browser"
   },
-  "title": "Stock Recommendations — Track Record",
+  "title": "Stock Recommendations \u2014 Track Record",
   "description": "How accurate the model's calls have been: when it was right, in which periods, and what correct calls share (sector, technical regime)."
 }

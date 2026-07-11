@@ -37,7 +37,7 @@ src/
 ├── config.py               # env-var loader → Config dataclass
 ├── db.py                   # PyMySQL connection + ticker/action/week-outcome/flip queries
 ├── collectors/
-│   ├── prices.py           # yfinance history + RSI/SMA/etc.; fetch_ticker_news + fetch_next_earnings (both feed the per-ticker prompt)
+│   ├── prices.py           # yfinance history + RSI/SMA/etc.; fetch_ticker_news + fetch_next_earnings + fetch_etf_info (all feed the per-ticker prompt)
 │   ├── reddit.py           # /r/stocks scraping (PRAW) + ticker extraction + trending detection
 │   └── news.py             # RSS feed aggregation + dedup
 ├── analysis/
@@ -59,8 +59,8 @@ src/
 4. **Claude call #1** — macro signal extraction → `macro_signals`. Wrapped in try/except: on failure the run continues with zero macro signals (a Claude outage must not stop price collection).
 5. Extract per-ticker Reddit mentions; match by `$TICKER` and uppercase-word patterns against known symbols.
 6. **Per-ticker, in three phases:**
-   - **6a — collect:** technicals from yfinance (+ upsert today's price into `price_checks` before any Claude involvement), Reddit sentiment summary, news headlines (top 3), next earnings date, and the ticker's standing call (`prev_action` + `prev_held_days`, from `get_latest_actions` — read before any of this run's rows land). Failures are isolated per ticker.
-   - **6b — one Message Batches call** with all N per-ticker requests (50% token discount; polled up to 45 min, then canceled). Since session 16 each prompt shows "Recomendación vigente: X (mantenida N días)" and requires naming material new information to reverse it (flip-stability).
+   - **6a — collect:** technicals from yfinance (+ upsert today's price into `price_checks` before any Claude involvement), Reddit sentiment summary, news headlines (top 3), next earnings date, the ETF profile for tickers whose `quote_type` is ETF (family, expense ratio, top-5 holdings, sector mix via yfinance `funds_data` — stocks skip the fetch entirely), and the ticker's standing call (`prev_action` + `prev_held_days`, from `get_latest_actions` — read before any of this run's rows land). Failures are isolated per ticker.
+   - **6b — one Message Batches call** with all N per-ticker requests (50% token discount; polled up to 45 min, then canceled). Since session 16 each prompt shows "Recomendación vigente: X (mantenida N días)" and requires naming material new information to reverse it (flip-stability). Since session 18 ETF prompts carry a "Perfil del ETF" block (composition + costs) with an instruction to judge the fund by its exposure, not as a single stock.
    - **6c — persist:** each parsed recommendation → `recommendations` (+ `reddit_mentions` for matched posts), linked to the most relevant macro signal for its sector (a POSITIVE/NEGATIVE direction beats a NEUTRAL mention). Unparseable/errored entries count as failures; nothing is persisted for them. Action flips vs each ticker's previous stored recommendation are collected here (S17).
 7. Write Reddit mentions for posts with no matched ticker (NULL-ticker rows are deduped by a pre-SELECT, since the UNIQUE key can't compare NULLs).
 8. Detect trending unknown tickers (filter: score > 100, mentions > 3) and upsert them into `trending_tickers`.

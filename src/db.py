@@ -28,13 +28,13 @@ def get_active_tickers(conn: pymysql.Connection) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute("""
             SELECT DISTINCT
-                t.id, t.symbol, t.name, t.sector, t.industry,
+                t.id, t.symbol, t.name, t.sector, t.industry, t.quote_type,
                 t.currency, t.long_business_summary, 'HOLDING' AS phase
             FROM tickers t
             JOIN holdings h ON h.ticker_id = t.id AND h.quantity > 0
             UNION
             SELECT DISTINCT
-                t.id, t.symbol, t.name, t.sector, t.industry,
+                t.id, t.symbol, t.name, t.sector, t.industry, t.quote_type,
                 t.currency, t.long_business_summary, 'WATCHLIST' AS phase
             FROM tickers t
             JOIN watchlist w ON w.ticker_id = t.id AND w.active = 1

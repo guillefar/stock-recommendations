@@ -49,11 +49,17 @@ def summarize_outcomes(rows: list[dict]) -> dict:
 
 
 def sector_exposure(tickers: list[dict]) -> dict[str, dict[str, int]]:
-    """Ticker count per sector, split by phase (HOLDING/WATCHLIST)."""
+    """Ticker count per sector, split by phase (HOLDING/WATCHLIST).
+
+    ETFs have no sector of their own (they hold many) — they get their own
+    bucket instead of drowning the exposure list in "(sin sector)".
+    """
     exposure: dict[str, dict[str, int]] = {}
     for t in tickers:
         phase = t.get("phase") or "WATCHLIST"
-        sector = t.get("sector") or "(sin sector)"
+        sector = t.get("sector") or (
+            "ETF" if t.get("quote_type") == "ETF" else "(sin sector)"
+        )
         exposure.setdefault(phase, {})
         exposure[phase][sector] = exposure[phase].get(sector, 0) + 1
     return exposure
