@@ -54,7 +54,7 @@ It never writes to `stock-snapshots` tables.
 
 ## Grafana dashboards
 
-Four dashboards live in [grafana/](grafana/), authored in **schema v2**
+Five dashboards live in [grafana/](grafana/), authored in **schema v2**
 (`elements` / `layout`) for Grafana 13.1.x:
 
 - `predictions_dashboard.json` — the **simplified view**: the latest call per
@@ -71,8 +71,14 @@ Four dashboards live in [grafana/](grafana/), authored in **schema v2**
   so neutral calls are excluded; all panels default to the **30-day** horizon
   (long-term orientation — 7d is a timing diagnostic on the trend chart) and
   respect the time picker.
+- `ticker_deep_dive_dashboard.json` — **per-stock track record**: a multi-select
+  **Ticker** variable scopes every panel — 30d hit-rate scorecard, price history
+  (from `price_checks`), hit rate by horizon, weekly verdict bars, and the full
+  call history with each call's 30-day grade.
 
 To import: **Dashboards → New → Import**, paste the JSON, and select your MySQL
 datasource when prompted. Date navigation uses the **time-range picker** (the
 "selected day" panels query `MAX(date) WHERE $__timeFilter(...)`), not a
 template-variable dropdown — pick the day via the time range at the top right.
+The ticker deep-dive is the exception: it adds a **Ticker** dropdown for
+symbol selection (time scoping still comes from the picker).

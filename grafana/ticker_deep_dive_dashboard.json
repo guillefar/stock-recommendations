@@ -1,0 +1,1221 @@
+{
+  "annotations": [
+    {
+      "kind": "AnnotationQuery",
+      "spec": {
+        "builtIn": true,
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "query": {
+          "datasource": {
+            "name": "-- Grafana --"
+          },
+          "group": "grafana",
+          "kind": "DataQuery",
+          "spec": {
+            "limit": 100,
+            "matchAny": false,
+            "tags": [],
+            "type": "dashboard"
+          },
+          "version": "v0"
+        }
+      }
+    }
+  ],
+  "cursorSync": "Off",
+  "editable": true,
+  "elements": {
+    "panel-1": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT ROUND(100*SUM(o.verdict='CORRECT')/\n  NULLIF(SUM(o.verdict IN('CORRECT','INCORRECT')),0),0) AS v\nFROM recommendation_outcomes o\nJOIN tickers t ON o.ticker_id=t.id\nWHERE o.horizon_days=30 AND t.symbol IN ($ticker)\n  AND $__timeFilter(o.generated_at)"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "CORRECT ÷ (CORRECT+INCORRECT) across the selected tickers' graded 30-day outcomes in range.",
+        "id": 1,
+        "links": [],
+        "title": "Hit rate (30d)",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 50
+                    },
+                    {
+                      "color": "green",
+                      "value": 60
+                    }
+                  ]
+                },
+                "mappings": []
+              },
+              "overrides": []
+            },
+            "options": {
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "colorMode": "value",
+              "graphMode": "none",
+              "justifyMode": "auto",
+              "textMode": "auto",
+              "orientation": "auto",
+              "showPercentChange": false,
+              "wideLayout": true,
+              "percentChangeColorMode": "standard"
+            }
+          },
+          "version": "13.2.0-28852654685"
+        }
+      }
+    },
+    "panel-2": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT SUM(o.verdict IN('CORRECT','INCORRECT')) AS v\nFROM recommendation_outcomes o\nJOIN tickers t ON o.ticker_id=t.id\nWHERE o.horizon_days=30 AND t.symbol IN ($ticker)\n  AND $__timeFilter(o.generated_at)"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Count of the selection's 30-day outcomes graded CORRECT or INCORRECT (the hit-rate sample).",
+        "id": 2,
+        "links": [],
+        "title": "Decided calls (30d)",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short",
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": 0
+                    }
+                  ]
+                },
+                "mappings": []
+              },
+              "overrides": []
+            },
+            "options": {
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "colorMode": "value",
+              "graphMode": "none",
+              "justifyMode": "auto",
+              "textMode": "auto",
+              "orientation": "auto",
+              "showPercentChange": false,
+              "wideLayout": true,
+              "percentChangeColorMode": "standard"
+            }
+          },
+          "version": "13.2.0-28852654685"
+        }
+      }
+    },
+    "panel-3": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT COUNT(*) AS v\nFROM recommendations r\nJOIN tickers t ON r.ticker_id=t.id\nWHERE t.symbol IN ($ticker) AND $__timeFilter(r.generated_at)"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Recommendations generated for the selection in the time range (graded or not).",
+        "id": 3,
+        "links": [],
+        "title": "Calls in range",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short",
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": 0
+                    }
+                  ]
+                },
+                "mappings": []
+              },
+              "overrides": []
+            },
+            "options": {
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "colorMode": "value",
+              "graphMode": "none",
+              "justifyMode": "auto",
+              "textMode": "auto",
+              "orientation": "auto",
+              "showPercentChange": false,
+              "wideLayout": true,
+              "percentChangeColorMode": "standard"
+            }
+          },
+          "version": "13.2.0-28852654685"
+        }
+      }
+    },
+    "panel-4": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "",
+        "id": 4,
+        "links": [],
+        "title": "How to read this",
+        "vizConfig": {
+          "group": "text",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": []
+            },
+            "options": {
+              "mode": "markdown",
+              "content": "### How to read this dashboard\n\nUse the **Ticker** selector (top-left) to pick one or more stocks/ETFs — every panel scopes to the selection and the time picker.\n\n**Hit rate = CORRECT ÷ (CORRECT + INCORRECT)** at the **30-day** horizon (the long-term headline metric); *neutral calls are excluded*, so a single ticker often has a small sample — check *Decided calls* before trusting the rate.\n\n- The **price history** starts 2026-06-12 (when in-repo daily price collection began).\n- **Hit rate by horizon** fills in as outcomes mature (first 90d ≈ Oct 2026, first 1y ≈ May 2027); grading bands widen with the horizon (a 1-year BUY must beat +15%, not +4%).\n- **avg return %** is the mean forward return of graded calls — direction-blind (a correct SELL can coexist with a positive underlying return).\n- The **call history** table shows every call in range with its 30-day grade (empty verdict = not matured yet or no exit price).",
+              "code": {
+                "language": "plaintext",
+                "showLineNumbers": false,
+                "showMiniMap": false
+              }
+            }
+          },
+          "version": "13.2.0-28852654685"
+        }
+      }
+    },
+    "panel-5": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "time_series",
+                      "rawQuery": true,
+                      "rawSql": "SELECT UNIX_TIMESTAMP(pc.as_of_date) AS time_sec,\n  t.symbol AS metric,\n  pc.price AS value\nFROM price_checks pc\nJOIN tickers t ON pc.ticker_id=t.id\nWHERE t.symbol IN ($ticker) AND $__timeFilter(pc.as_of_date)\nORDER BY time_sec"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Daily observed price per selected ticker (from price_checks — collected since 2026-06-12; weekdays only). Most readable with a handful of tickers; scales differ across symbols.",
+        "id": 5,
+        "links": [],
+        "title": "Price history",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short",
+                "custom": {
+                  "drawStyle": "line",
+                  "lineInterpolation": "smooth",
+                  "lineWidth": 2,
+                  "fillOpacity": 8,
+                  "pointSize": 5,
+                  "showPoints": "auto",
+                  "spanNulls": true,
+                  "axisPlacement": "auto",
+                  "axisLabel": "price",
+                  "gradientMode": "none",
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              "overrides": []
+            },
+            "options": {
+              "legend": {
+                "calcs": [],
+                "displayMode": "list",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.2.0-28852654685"
+        }
+      }
+    },
+    "panel-6": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT CONCAT(o.horizon_days,'d') AS horizon,\n  COUNT(*) AS total,\n  SUM(o.verdict='CORRECT')   AS correct,\n  SUM(o.verdict='INCORRECT') AS incorrect,\n  SUM(o.verdict='NEUTRAL')   AS neutral,\n  ROUND(100*SUM(o.verdict='CORRECT')/\n    NULLIF(SUM(o.verdict IN('CORRECT','INCORRECT')),0),0) AS `hit rate %`,\n  ROUND(100*AVG(o.forward_return),1) AS `avg return %`\nFROM recommendation_outcomes o\nJOIN tickers t ON o.ticker_id=t.id\nWHERE t.symbol IN ($ticker) AND $__timeFilter(o.generated_at)\nGROUP BY o.horizon_days\nORDER BY o.horizon_days"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "The selection's outcomes at every grading horizon. 30d is the headline; 90d/365d fill in as they mature. avg return % is the mean forward return of graded calls (direction-blind).",
+        "id": 6,
+        "links": [],
+        "title": "Hit rate by horizon",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "filterable": true,
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "hit rate %"
+                  },
+                  "properties": [
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "color-background"
+                      }
+                    },
+                    {
+                      "id": "unit",
+                      "value": "percent"
+                    },
+                    {
+                      "id": "thresholds",
+                      "value": {
+                        "mode": "absolute",
+                        "steps": [
+                          {
+                            "color": "red",
+                            "value": 0
+                          },
+                          {
+                            "color": "yellow",
+                            "value": 50
+                          },
+                          {
+                            "color": "green",
+                            "value": 60
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "correct"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "green"
+                      }
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "color-text"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "incorrect"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "red"
+                      }
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "color-text"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "neutral"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "text"
+                      }
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "color-text"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "avg return %"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "percent"
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "showHeader": true,
+              "footer": {
+                "show": false,
+                "reducer": [
+                  "sum"
+                ],
+                "countRows": false,
+                "fields": ""
+              }
+            }
+          },
+          "version": "13.2.0-28852654685"
+        }
+      }
+    },
+    "panel-7": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT UNIX_TIMESTAMP(DATE(o.generated_at) - INTERVAL WEEKDAY(o.generated_at) DAY) AS time_sec,\n  SUM(o.verdict='CORRECT')   AS correct,\n  SUM(o.verdict='INCORRECT') AS incorrect,\n  SUM(o.verdict='NEUTRAL')   AS neutral\nFROM recommendation_outcomes o\nJOIN tickers t ON o.ticker_id=t.id\nWHERE o.horizon_days=30 AND t.symbol IN ($ticker)\n  AND $__timeFilter(o.generated_at)\nGROUP BY time_sec\nORDER BY time_sec"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "How the selection's 30-day grades landed over time (stacked by verdict, Monday-anchored weeks, by the week the call was made).",
+        "id": 7,
+        "links": [],
+        "title": "30d verdicts by week",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short",
+                "min": 0,
+                "custom": {
+                  "drawStyle": "bars",
+                  "lineInterpolation": "linear",
+                  "lineWidth": 0,
+                  "fillOpacity": 65,
+                  "pointSize": 5,
+                  "showPoints": "never",
+                  "spanNulls": false,
+                  "axisPlacement": "auto",
+                  "axisLabel": "graded calls",
+                  "gradientMode": "none",
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "stacking": {
+                    "group": "A",
+                    "mode": "normal"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "correct"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "green"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "incorrect"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "red"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "neutral"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "text"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "legend": {
+                "calcs": [],
+                "displayMode": "list",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.2.0-28852654685"
+        }
+      }
+    },
+    "panel-8": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT r.generated_at AS `called at`,\n  t.symbol,\n  r.action,\n  ROUND(r.confidence*100,0) AS `confidence %`,\n  CAST(JSON_EXTRACT(r.technical,'$.price') AS DECIMAL(12,2)) AS `entry price`,\n  o.verdict AS `30d verdict`,\n  ROUND(100*o.forward_return,1) AS `30d return %`,\n  LEFT(r.reasoning, 200) AS reasoning\nFROM recommendations r\nJOIN tickers t ON r.ticker_id=t.id\nLEFT JOIN recommendation_outcomes o\n  ON o.recommendation_id=r.id AND o.horizon_days=30\nWHERE t.symbol IN ($ticker) AND $__timeFilter(r.generated_at)\nORDER BY r.generated_at DESC"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Every recommendation for the selection in range (newest first) with its 30-day grade. Empty verdict = the call hasn't matured yet or no exit price exists for its window.",
+        "id": 8,
+        "links": [],
+        "title": "Call history",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "align": "left",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "filterable": true,
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "action"
+                  },
+                  "properties": [
+                    {
+                      "id": "mappings",
+                      "value": [
+                        {
+                          "type": "value",
+                          "options": {
+                            "BUY": {
+                              "color": "green",
+                              "index": 0
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "SELL": {
+                              "color": "red",
+                              "index": 1
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "HOLD": {
+                              "color": "blue",
+                              "index": 2
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "WATCH": {
+                              "color": "orange",
+                              "index": 3
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "AVOID": {
+                              "color": "dark-red",
+                              "index": 4
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "color-text"
+                      }
+                    },
+                    {
+                      "id": "custom.width",
+                      "value": 80
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "30d verdict"
+                  },
+                  "properties": [
+                    {
+                      "id": "mappings",
+                      "value": [
+                        {
+                          "type": "value",
+                          "options": {
+                            "CORRECT": {
+                              "color": "green",
+                              "index": 0
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "INCORRECT": {
+                              "color": "red",
+                              "index": 1
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "NEUTRAL": {
+                              "color": "text",
+                              "index": 2
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "color-text"
+                      }
+                    },
+                    {
+                      "id": "custom.width",
+                      "value": 110
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "confidence %"
+                  },
+                  "properties": [
+                    {
+                      "id": "custom.width",
+                      "value": 100
+                    },
+                    {
+                      "id": "thresholds",
+                      "value": {
+                        "mode": "absolute",
+                        "steps": [
+                          {
+                            "color": "red",
+                            "value": 0
+                          },
+                          {
+                            "color": "yellow",
+                            "value": 50
+                          },
+                          {
+                            "color": "green",
+                            "value": 70
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "color-background"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "symbol"
+                  },
+                  "properties": [
+                    {
+                      "id": "custom.width",
+                      "value": 90
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "30d return %"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "percent"
+                    },
+                    {
+                      "id": "custom.width",
+                      "value": 110
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "showHeader": true,
+              "footer": {
+                "show": false,
+                "reducer": [
+                  "sum"
+                ],
+                "countRows": false,
+                "fields": ""
+              }
+            }
+          },
+          "version": "13.2.0-28852654685"
+        }
+      }
+    }
+  },
+  "layout": {
+    "kind": "GridLayout",
+    "spec": {
+      "items": [
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-1"
+            },
+            "height": 6,
+            "width": 5,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-2"
+            },
+            "height": 6,
+            "width": 5,
+            "x": 5,
+            "y": 0
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-3"
+            },
+            "height": 6,
+            "width": 4,
+            "x": 10,
+            "y": 0
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-4"
+            },
+            "height": 6,
+            "width": 10,
+            "x": 14,
+            "y": 0
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-5"
+            },
+            "height": 10,
+            "width": 14,
+            "x": 0,
+            "y": 6
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-6"
+            },
+            "height": 10,
+            "width": 10,
+            "x": 14,
+            "y": 6
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-7"
+            },
+            "height": 9,
+            "width": 24,
+            "x": 0,
+            "y": 16
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-8"
+            },
+            "height": 12,
+            "width": 24,
+            "x": 0,
+            "y": 25
+          }
+        }
+      ]
+    }
+  },
+  "links": [],
+  "liveNow": false,
+  "preload": false,
+  "variables": [
+    {
+      "kind": "QueryVariable",
+      "spec": {
+        "name": "ticker",
+        "label": "Ticker",
+        "description": "Pick one or more tickers (or All). Every panel scopes to this selection.",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": "dontHide",
+        "refresh": "onDashboardLoad",
+        "skipUrlSync": false,
+        "query": {
+          "kind": "DataQuery",
+          "group": "mysql",
+          "version": "v0",
+          "datasource": {
+            "name": "cfadv004ogglcf"
+          },
+          "spec": {
+            "editorMode": "code",
+            "format": "table",
+            "rawQuery": true,
+            "rawSql": "SELECT DISTINCT t.symbol\nFROM tickers t\nJOIN recommendations r ON r.ticker_id = t.id\nORDER BY t.symbol"
+          }
+        },
+        "regex": "",
+        "sort": "disabled",
+        "definition": "SELECT DISTINCT t.symbol\nFROM tickers t\nJOIN recommendations r ON r.ticker_id = t.id\nORDER BY t.symbol",
+        "options": [],
+        "multi": true,
+        "includeAll": true,
+        "allowCustomValue": false
+      }
+    }
+  ],
+  "tags": [
+    "stocks",
+    "recommendations",
+    "AI",
+    "ticker-deep-dive"
+  ],
+  "timeSettings": {
+    "autoRefresh": "",
+    "autoRefreshIntervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ],
+    "fiscalYearStartMonth": 0,
+    "from": "now-90d",
+    "to": "now",
+    "hideTimepicker": false,
+    "timezone": "browser"
+  },
+  "title": "Stock Recommendations — Ticker Deep Dive",
+  "description": "Per-ticker view of how the model's calls went: pick one or more tickers to see their hit rate, price path, grades over time, and full call history."
+}
