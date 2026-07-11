@@ -1953,6 +1953,329 @@
           }
         }
       }
+    },
+    "panel-12": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT\n  week_start                      AS `week of`,\n  generated_at,\n  stats->>'$.outcomes.hit_rate_pct' AS `hit rate % (30d)`,\n  retrospective\nFROM weekly_retrospectives\nWHERE week_start = (SELECT MAX(week_start) FROM weekly_retrospectives WHERE $__timeFilter(generated_at))"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "S5: Claude's week-in-review for a long-term investor — how the calls whose 30d horizon matured this week graded, the week's action flips, and sector exposure. Written on Friday runs; shows the latest week inside the selected time range. Empty until the first Friday run after the S5 merge.",
+        "id": 12,
+        "links": [],
+        "title": "Retrospectiva semanal (S5, 30d)",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "align": "left",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "filterable": false,
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                }
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "week of"
+                  },
+                  "properties": [
+                    {
+                      "id": "custom.width",
+                      "value": 110
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "generated_at"
+                  },
+                  "properties": [
+                    {
+                      "id": "custom.width",
+                      "value": 170
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "hit rate % (30d)"
+                  },
+                  "properties": [
+                    {
+                      "id": "custom.width",
+                      "value": 140
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "footer": {
+                "countRows": false,
+                "fields": "",
+                "reducer": [
+                  "sum"
+                ],
+                "show": false
+              },
+              "showHeader": true
+            }
+          }
+        }
+      }
+    },
+    "panel-13": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT\n  UNIX_TIMESTAMP(DATE(r2.generated_at)) AS time_sec,\n  COUNT(*)                              AS flips\nFROM recommendations r2\nJOIN recommendations r1\n  ON r1.ticker_id = r2.ticker_id\n AND r1.generated_at = (\n   SELECT MAX(r3.generated_at) FROM recommendations r3\n   WHERE r3.ticker_id = r2.ticker_id AND r3.generated_at < r2.generated_at\n )\n AND r1.action <> r2.action\nWHERE $__timeFilter(r2.generated_at)\nGROUP BY time_sec\nORDER BY time_sec"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Flip-stability watch: how many tickers changed action vs their previous run, per day. The long-term prompt (session 14) tells the model not to flip on weekly noise — a sustained high bar count here means that instruction needs reinforcement. Expect a one-day spike right after any prompt change.",
+        "id": 13,
+        "links": [],
+        "title": "Action flips per run",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "drawStyle": "bars",
+                  "fillOpacity": 85,
+                  "lineWidth": 1,
+                  "barAlignment": 0,
+                  "pointSize": 5,
+                  "showPoints": "never",
+                  "axisPlacement": "auto",
+                  "axisLabel": "",
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "flips"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "orange"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "legend": {
+                "calcs": [],
+                "displayMode": "list",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "mode": "multi",
+                "sort": "none"
+              }
+            }
+          }
+        }
+      }
+    },
+    "panel-14": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT\n  symbol,\n  first_seen    AS `first seen`,\n  last_seen     AS `last seen`,\n  times_seen    AS `runs trending`,\n  mention_count AS `posts (latest run)`,\n  avg_score     AS `avg score (latest run)`\nFROM trending_tickers\nORDER BY last_seen DESC, times_seen DESC\nLIMIT 50"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Candidates to watchlist: symbols trending in high-score Reddit posts that aren't in the tickers table (migration 004; persisted each run). A symbol trending across many runs is a stronger signal than one spike. Empty until Reddit credentials are configured.",
+        "id": 14,
+        "links": [],
+        "title": "Trending tickers not in watchlist",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "align": "left",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "filterable": false,
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                }
+              },
+              "overrides": []
+            },
+            "options": {
+              "cellHeight": "sm",
+              "footer": {
+                "countRows": false,
+                "fields": "",
+                "reducer": [
+                  "sum"
+                ],
+                "show": false
+              },
+              "showHeader": true
+            }
+          }
+        }
+      }
     }
   },
   "layout": {
@@ -2100,6 +2423,45 @@
             "width": 24,
             "x": 0,
             "y": 72
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-12"
+            },
+            "height": 9,
+            "width": 24,
+            "x": 0,
+            "y": 80
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-13"
+            },
+            "height": 8,
+            "width": 24,
+            "x": 0,
+            "y": 89
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-14"
+            },
+            "height": 7,
+            "width": 24,
+            "x": 0,
+            "y": 97
           }
         }
       ]

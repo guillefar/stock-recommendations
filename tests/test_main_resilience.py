@@ -9,8 +9,12 @@ TICKER = {"id": 1, "symbol": "AAPL", "name": "Apple", "sector": "Tech", "phase":
 
 
 def _run_main(monkeypatch, macro_raises: bool, summary_result):
+    from datetime import date
+
     calls = {"price_checks": [], "recommendations": [], "summaries": []}
 
+    # Pin a non-Friday so the S5 retrospective path stays out of these tests.
+    monkeypatch.setattr(main_mod, "_today", lambda: date(2026, 7, 6))
     monkeypatch.setattr(main_mod, "load_config", lambda: SimpleNamespace())
     monkeypatch.setattr(
         main_mod, "ClaudeClient", lambda cfg: SimpleNamespace(log_usage=lambda: None)

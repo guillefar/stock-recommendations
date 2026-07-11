@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pymysql
 import pymysql.cursors
 
@@ -58,3 +60,62 @@ def get_latest_actions(conn: pymysql.Connection) -> dict[int, str]:
             ) m ON m.ticker_id = r.ticker_id AND m.latest_at = r.generated_at
         """)
         return {row["ticker_id"]: row["action"] for row in cur.fetchall()}
+
+
+def get_week_outcomes(
+    conn: pymysql.Connection, now: datetime, horizon: int = 30
+) -> list[dict]:
+    """Graded outcomes whose horizon fell due in the 7 days before `now` (S5).
+
+    Maturity is `generated_at + horizon`, not `evaluated_at` — a backfill or
+    re-grade rewrites evaluated_at for old rows and would flood the first
+    retrospective after it.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              t.symbol, o.action, o.confidence, o.forward_return, o.verdict,
+              DATE(o.generated_at) AS called_on
+            FROM recommendation_outcomes o
+            JOIN tickers t ON t.id = o.ticker_id
+            WHERE o.horizon_days = %s
+              AND o.generated_at + INTERVAL %s DAY >  %s - INTERVAL 7 DAY
+              AND o.generated_at + INTERVAL %s DAY <= %s
+            ORDER BY o.forward_return DESC
+            """,
+            (horizon, horizon, now, horizon, now),
+        )
+        return cur.fetchall()
+
+
+def get_week_flips(conn: pymysql.Connection, now: datetime) -> list[dict]:
+    """Action flips in the 7 days before `now` (S5).
+
+    Same flip semantics as the digest's panel-9: this recommendation's action
+    vs the ticker's immediately-preceding stored recommendation.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              DATE(r2.generated_at) AS day,
+              t.symbol,
+              r1.action AS prev_action,
+              r2.action AS new_action
+            FROM recommendations r2
+            JOIN recommendations r1
+              ON r1.ticker_id = r2.ticker_id
+             AND r1.generated_at = (
+               SELECT MAX(r3.generated_at) FROM recommendations r3
+               WHERE r3.ticker_id = r2.ticker_id AND r3.generated_at < r2.generated_at
+             )
+             AND r1.action <> r2.action
+            JOIN tickers t ON t.id = r2.ticker_id
+            WHERE r2.generated_at > %s - INTERVAL 7 DAY
+              AND r2.generated_at <= %s
+            ORDER BY r2.generated_at, t.symbol
+            """,
+            (now, now),
+        )
+        return cur.fetchall()

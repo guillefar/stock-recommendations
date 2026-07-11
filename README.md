@@ -26,6 +26,7 @@ cp .env.example .env                   # fill in DB_* + ANTHROPIC_API_KEY (+ opt
 
 python -m src.main --dry-run           # full run, logs only — no DB writes
 python -m src.main                      # real run (writes recommendations + price_checks)
+python -m src.main --force-retro       # also generate the weekly retrospective off-Friday
 python -m src.evaluate_outcomes --dry-run   # grade matured recommendations
 python -m pytest tests/ -q             # unit tests (pure logic, no DB/API)
 ```
@@ -45,9 +46,10 @@ Required env vars: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`,
 
 ## Database
 
-Migrations in [migrations/](migrations/) (apply in order: `001` → `003`). This
+Migrations in [migrations/](migrations/) (apply in order: `001` → `005`). This
 project **only writes** to `recommendations`, `daily_market_summary`,
-`reddit_mentions`, `macro_signals`, `recommendation_outcomes`, and `price_checks`.
+`reddit_mentions`, `macro_signals`, `recommendation_outcomes`, `price_checks`,
+`trending_tickers`, and `weekly_retrospectives`.
 It never writes to `stock-snapshots` tables.
 
 ## Grafana dashboards
@@ -59,7 +61,8 @@ Four dashboards live in [grafana/](grafana/), authored in **schema v2**
   ticker (action, confidence, entry price, one-line reasoning, and that
   ticker's own historical hit rate) plus the weekly hit-rate trend.
 - `daily_digest_dashboard.json` — the daily digest (summary, recommendations,
-  macro signals, outcomes, hit-rate and calibration panels).
+  macro signals, outcomes, hit-rate and calibration panels, the weekly
+  retrospective, flips-per-run trend, and trending watchlist candidates).
 - `recommendations_dashboard.json` — recommendation/confidence history.
 - `track_record_dashboard.json` — model accuracy over time: a scorecard header
   (overall hit rate, decisiveness, sample size), a **weekly hit-rate trend**

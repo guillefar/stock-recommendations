@@ -1,6 +1,7 @@
 import argparse
 import logging
 import sys
+from datetime import date, datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 
@@ -9,19 +10,32 @@ load_dotenv()
 from src.analysis.claude_client import ClaudeClient
 from src.analysis.macro import run_macro_analysis
 from src.analysis.recommendation import run_ticker_recommendations_batch
+from src.analysis.retrospective import build_retro_data, run_weekly_retrospective
 from src.analysis.summary import run_daily_summary
 from src.collectors.news import fetch_macro_headlines
 from src.collectors.prices import fetch_next_earnings, fetch_prices_and_indicators, fetch_ticker_news
 from src.collectors.reddit import extract_ticker_mentions, fetch_reddit_posts, find_trending_unknown
 from src.config import load_config
-from src.db import get_active_tickers, get_connection, get_known_symbols, get_latest_actions
+from src.db import (
+    get_active_tickers,
+    get_connection,
+    get_known_symbols,
+    get_latest_actions,
+    get_week_flips,
+    get_week_outcomes,
+)
 from src.persistence.writers import (
     write_daily_summary,
     write_macro_signals,
     write_price_check,
     write_recommendation,
     write_reddit_mentions,
+    write_trending_tickers,
+    write_weekly_retrospective,
 )
+
+# The weekly retrospective (S5) fires on the last cron run of the trading week.
+_RETRO_WEEKDAY = 4  # Friday
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,7 +45,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def main(dry_run: bool = False) -> None:
+def _today() -> date:
+    return date.today()
+
+
+def main(dry_run: bool = False, force_retro: bool = False) -> None:
     logger.info(f"Starting stock-recommendations run (dry_run={dry_run})")
     cfg = load_config()
 
@@ -190,13 +208,15 @@ def main(dry_run: bool = False) -> None:
             conn.ping(reconnect=True)
             write_reddit_mentions(conn, None, unmatched_posts, dry_run=dry_run)
 
-        # ── 8. Detect trending unknown tickers ───────────────────────────────
+        # ── 8. Detect + persist trending unknown tickers ─────────────────────
         trending_unknown = find_trending_unknown(reddit_posts, known_symbols)
         if trending_unknown:
             logger.info(
                 f"Trending tickers not in watchlist/holdings "
                 f"(consider adding): {[t['symbol'] for t in trending_unknown]}"
             )
+            conn.ping(reconnect=True)
+            write_trending_tickers(conn, trending_unknown, dry_run=dry_run)
 
         # ── 9. Daily summary (1 Claude call) ─────────────────────────────────
         logger.info("Generating daily summary...")
@@ -227,6 +247,33 @@ def main(dry_run: bool = False) -> None:
             write_daily_summary(conn, summary, len(reddit_posts), dry_run=dry_run)
         else:
             logger.error("No daily summary persisted for today")
+
+        # ── 10. Weekly retrospective (S5 — Fridays, 1 extra Claude call) ─────
+        # Reviews the week for a long-term investor: which calls' 30d horizon
+        # matured this week and how they graded, the week's flips, and current
+        # sector exposure. A failure here must not kill the run.
+        today = _today()
+        if force_retro or today.weekday() == _RETRO_WEEKDAY:
+            logger.info("Generating weekly retrospective...")
+            week_start = today - timedelta(days=today.weekday())
+            retro = None
+            try:
+                conn.ping(reconnect=True)
+                now = datetime.now(timezone.utc).replace(tzinfo=None)
+                retro_data = build_retro_data(
+                    week_start,
+                    tickers,
+                    get_week_outcomes(conn, now, horizon=30),
+                    get_week_flips(conn, now),
+                )
+                retro = run_weekly_retrospective(claude, retro_data)
+            except Exception:
+                logger.exception("Weekly retrospective failed")
+            if retro is not None:
+                conn.ping(reconnect=True)
+                write_weekly_retrospective(conn, week_start, retro, retro_data, dry_run=dry_run)
+            else:
+                logger.error(f"No weekly retrospective persisted for week {week_start}")
     finally:
         conn.close()
 
@@ -252,5 +299,9 @@ def main(dry_run: bool = False) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Stock Recommendations Runner")
     parser.add_argument("--dry-run", action="store_true", help="Log only — don't write to DB")
+    parser.add_argument(
+        "--force-retro", action="store_true",
+        help="Generate the weekly retrospective regardless of weekday",
+    )
     args = parser.parse_args()
-    main(dry_run=args.dry_run)
+    main(dry_run=args.dry_run, force_retro=args.force_retro)

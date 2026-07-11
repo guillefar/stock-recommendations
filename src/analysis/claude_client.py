@@ -52,6 +52,13 @@ _SUMMARY_SYSTEM = (
     "Respondes en JSON estricto, sin texto adicional."
 )
 
+_RETRO_SYSTEM = (
+    "Eres analista financiero de un inversor de largo plazo (posiciones de meses "
+    "o años). Escribes retrospectivas semanales honestas en markdown: qué "
+    "predicciones funcionaron, cuáles no, y qué patrones se repiten — sin "
+    "maquillar los fallos. Respondes en JSON estricto, sin texto adicional."
+)
+
 
 class ClaudeClient:
     def __init__(self, cfg: Config):
@@ -450,6 +457,86 @@ Genera:
         self._record_usage(response)
         # None on failure — the caller must skip persistence rather than upsert
         # an error placeholder over the day's row (same rule as analyze_ticker).
+        return _structured_json(response, default=None)
+
+    def generate_weekly_retrospective(self, retro_data: dict) -> dict | None:
+        """Week-in-review for a long-term investor (S5; Fridays, 1 extra call).
+
+        `retro_data` is the pre-aggregated payload from
+        src.analysis.retrospective.build_retro_data — counts + highlights, not
+        raw rows, so the prompt stays small at any outcome volume.
+        """
+        o = retro_data.get("outcomes", {})
+        horizon = retro_data.get("horizon_days", 30)
+
+        def _calls_text(calls: list[dict]) -> str:
+            return "\n".join(
+                f"- {c['symbol']}: {c['action']} del {c['called_on']}, "
+                f"retorno {c['forward_return']:+.1%}"
+                for c in calls
+            ) or "(ninguna)"
+
+        hit_rate = o.get("hit_rate_pct")
+        outcomes_line = (
+            f"{o.get('total', 0)} llamadas maduraron: {o.get('correct', 0)} CORRECT / "
+            f"{o.get('incorrect', 0)} INCORRECT / {o.get('neutral', 0)} NEUTRAL"
+            + (f" — hit rate {hit_rate}% sobre las decididas" if hit_rate is not None else "")
+        )
+
+        flips = retro_data.get("flips", [])
+        flips_text = "\n".join(
+            f"- {f['day']} {f['symbol']}: {f['prev_action']} → {f['new_action']}"
+            for f in flips
+        ) or "(ninguno)"
+
+        exposure = retro_data.get("sector_exposure", {})
+        exposure_text = "\n".join(
+            f"- {phase}: " + ", ".join(f"{sector} {n}" for sector, n in sectors.items())
+            for phase, sectors in exposure.items()
+        ) or "(sin posiciones)"
+
+        user_msg = f"""Retrospectiva de la semana del {retro_data.get('week_start', '?')} (horizonte de evaluación: {horizon} días).
+
+Resultados a {horizon} días que maduraron esta semana:
+{outcomes_line}
+
+Mejores aciertos de la semana:
+{_calls_text(o.get('best', []))}
+
+Peores fallos de la semana:
+{_calls_text(o.get('worst', []))}
+
+Cambios de recomendación durante la semana:
+{flips_text}
+
+Exposición sectorial actual (tickers por sector):
+{exposure_text}
+
+Genera `retrospective`: una retrospectiva en markdown de 3-5 párrafos para un
+inversor de largo plazo — qué acertaron y qué fallaron las recomendaciones al
+horizonte de {horizon} días (con los tickers concretos), si los cambios de
+recomendación de la semana parecen tesis reales o ruido de corto plazo, qué
+sesgos o patrones se repiten (por acción o sector), y qué implica todo esto
+para las posiciones a 1+ mes vista. Sé honesto con los fallos."""
+
+        response = self._client.messages.create(
+            model=MODEL,
+            max_tokens=2048,
+            system=_RETRO_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+            output_config={
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {"retrospective": {"type": "string"}},
+                        "required": ["retrospective"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+        )
+        self._record_usage(response)
         return _structured_json(response, default=None)
 
 

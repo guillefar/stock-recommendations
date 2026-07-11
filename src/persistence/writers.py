@@ -224,3 +224,68 @@ def write_daily_summary(
             ),
         )
     logger.info(f"Upserted daily summary: {summary.get('overall_sentiment')}")
+
+
+def write_weekly_retrospective(
+    conn: pymysql.Connection,
+    week_start: date,
+    retro: dict,
+    stats: dict,
+    dry_run: bool = False,
+) -> None:
+    """Upserts the week-in-review (S5; one row per week, keyed on its Monday)."""
+    if dry_run:
+        logger.info(f"[dry-run] Would upsert weekly retrospective for week {week_start}")
+        return
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO weekly_retrospectives
+              (week_start, generated_at, retrospective, stats)
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+              generated_at  = VALUES(generated_at),
+              retrospective = VALUES(retrospective),
+              stats         = VALUES(stats)
+            """,
+            (week_start, _utcnow(), retro.get("retrospective"), json.dumps(stats)),
+        )
+    logger.info(f"Upserted weekly retrospective for week {week_start}")
+
+
+def write_trending_tickers(
+    conn: pymysql.Connection,
+    trending: list[dict],
+    dry_run: bool = False,
+) -> None:
+    """Upserts trending-unknown symbols (one row per symbol, Wave 4).
+
+    first_seen sticks; last_seen/mention_count/avg_score reflect the latest run
+    and times_seen counts the runs the symbol trended on (once per day at most,
+    since the cron is daily).
+    """
+    if dry_run:
+        logger.info(
+            f"[dry-run] Would upsert {len(trending)} trending tickers: "
+            f"{[t['symbol'] for t in trending]}"
+        )
+        return
+
+    today = _utcnow().date()
+    with conn.cursor() as cur:
+        for t in trending:
+            cur.execute(
+                """
+                INSERT INTO trending_tickers
+                  (symbol, first_seen, last_seen, times_seen, mention_count, avg_score)
+                VALUES (%s, %s, %s, 1, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                  times_seen    = times_seen + (last_seen <> VALUES(last_seen)),
+                  last_seen     = VALUES(last_seen),
+                  mention_count = VALUES(mention_count),
+                  avg_score     = VALUES(avg_score)
+                """,
+                (t["symbol"][:10], today, today, t.get("mention_count", 0), t.get("avg_score")),
+            )
+    logger.info(f"Upserted {len(trending)} trending tickers")

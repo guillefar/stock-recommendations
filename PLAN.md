@@ -2,11 +2,20 @@
 
 Living document. Update as work progresses. See [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md) for the static overview and [SPEC.md](SPEC.md) for design rationale.
 
-**Last updated:** 2026-07-10 (session 14)
+**Last updated:** 2026-07-11 (session 15)
 
 ## Current state
 
-**Session 14 reoriented the system to the user's long-term investing horizon** (stated 2026-07-10: positions are held for months/years — predictions must target ≥1 month, 1 year, and longer, not week-to-week trading). On branch **`feat/session-14-long-term`** (pushed, **not merged**):
+**Session 14 is merged** (`main` @ `4240120`, ff-merged 2026-07-11 after the user imported the three touched dashboards from the session-14 worktree and approved the 30d panels). **S17 is verified in production**: the 2026-07-10 scheduled run (`29092211473`) logged `Action flips vs previous run:` with 11 flips (NBIS HOLD→SELL, MU BUY→AVOID, SOLS WATCH→BUY, …) and the day's Spanish summary called them out explicitly ("Se registraron 11 cambios de recomendación importantes…"); run cost $0.0845.
+
+Session 15 delivered the rest of Wave 4 (minus Reddit-gated sentiment) on branch **`feat/session-15-s5-retro`** (pushed, **not merged**):
+
+- **S5 — weekly retrospective.** On Friday runs (or `--force-retro`), [src/main.py](src/main.py) makes one extra Haiku call reviewing the week for a long-term investor: the calls whose **30d horizon matured that week** and how they graded (counts + hit rate + biggest wins/misses), the week's action flips, and current sector exposure. Aggregation happens in Python ([src/analysis/retrospective.py](src/analysis/retrospective.py)) so the prompt stays small at any outcome volume; maturity is `generated_at + 30d` (not `evaluated_at`, which a re-grade would flood). Stored via migration **005 `weekly_retrospectives`** (one row per week keyed on its Monday, upserted; `stats` JSON carries the aggregates) — applied to the DB. New digest **panel-12** shows the latest week's review.
+- **Flip-stability watch.** New digest **panel-13 "Action flips per run"**: flips-per-day bar trend so the post-reorientation flip volume is visible at a glance (the 07-10 prompt change should spike once, then settle).
+- **Migration 004 — `trending_tickers`** (applied to the DB): `find_trending_unknown` results now persist (one row per symbol; `first_seen`/`last_seen`/`times_seen`/latest `mention_count`+`avg_score`) via `write_trending_tickers`; new digest **panel-14** lists watchlist candidates. Empty until Reddit creds exist.
+- **S18 tests + S13.** New [tests/test_reddit_mentions.py](tests/test_reddit_mentions.py) (stopwords skip bare `IT`/`GO`/`BE` but `$IT` counts; trending threshold >3 mentions at score>100), [tests/test_writers_dedup.py](tests/test_writers_dedup.py) (4h dedup window), `_pct_change` fixtures in [tests/test_prices.py](tests/test_prices.py). S13: the `yfinance` library logger is silenced at CRITICAL in [src/collectors/prices.py](src/collectors/prices.py) (its internal 404 ERROR lines were cosmetic; every real failure path already logs locally).
+
+**Session 14 (merged 2026-07-11) reoriented the system to the user's long-term investing horizon** (stated 2026-07-10: positions are held for months/years — predictions must target ≥1 month, 1 year, and longer, not week-to-week trading):
 
 - **Grading now runs at four horizons — 7d/30d/90d/365d — with per-horizon bands** that widen ~√time ([src/evaluate_outcomes.py](src/evaluate_outcomes.py) `HORIZON_BANDS`): 7d keeps ±2%/5%/10% (neutral/WATCH-move/HOLD-loss), 30d gets ±4%/10%/15%, 90d ±7%/15%/20%, 365d ±15%/30%/30%. A 1-year BUY must beat +15%, not the +2% that suits a week. First 90d outcomes mature ≈ 2026-08-15, first 1y ≈ 2027-05-17 (earliest rec is 2026-05-17).
 - **The 1,134 historical 30d outcomes were deleted and re-graded** under the new bands (user-authorized): 382 C / 363 I / 389 N — the honest 30d hit rate is **51%** (the old ±2% band had inflated it to 64%). 7d rows untouched.
@@ -45,13 +54,26 @@ Previous state (session 06, Wave 1.5): grading semantics were decided and implem
 
 ## In progress
 
-- **`feat/session-14-long-term` awaits merge** (long-term reorientation). Merge gate: user re-imports the three touched dashboards (track-record — also carries their repaired hand-edit —, predictions, digest) and eyeballs the 30d-headline panels; first post-merge production run confirms the new prompt + the 51% baseline.
-- **S17 production verification pending**: after the next 10:00 UTC scheduled run on merged main, check the log for "Action flips vs previous run:" and have the user read the day's summary (should call the flips out).
-- **Wave 4 (product features) — ongoing.** Delivered so far: track-record dashboard (session 10), predictions dashboard + consolidation (session 12), S17 flips-in-summary (session 13). **Still open:** persist trending-unknown tickers (migration 004), batched Reddit sentiment [gated on creds], weekly retrospective (S5). Quick wins still open: S18 remainder (`extract_ticker_mentions` stopwords, dedup window), S13 (silence yfinance 404 logs), token trims (HANDOFF_12 caveats).
+- **`feat/session-15-s5-retro` awaits merge** (S5 retrospective + flips panel + trending persistence + S18/S13). Merge gate: user re-imports the digest dashboard (3 new panels) from the session-15 worktree and approves; the first post-merge **Friday** run (10:00 UTC) writes the first real retrospective — verify the `weekly_retrospectives` row + panel-12. Migrations 004/005 are **already applied** to the DB.
+- **Flip-stability watch (data collection)**: digest panel-13 now charts flips/run — check after a week whether the post-reorientation flip volume settled (11 on 07-10; if it stays ≥10, reinforce the no-noise-flips prompt instruction).
+- **Wave 4 (product features) — nearly done.** Delivered: track-record dashboard (s10), predictions dashboard + consolidation (s12), S17 flips-in-summary (s13), trending-unknown persistence + S5 weekly retrospective (s15). **Still open:** batched Reddit sentiment [gated on creds]. Other open items: token trims (HANDOFF_12 caveats), fold-in cleanups below.
+
+## Done (session 15 — 2026-07-11, S14 merge + S5 retrospective + Wave-4 close)
+
+On branch **`feat/session-15-s5-retro`** (off `main` @ `4240120`), worktree `.claude/worktrees/session-15-s5-retro`. Pushed, **not merged**.
+
+- **Verified S17 in production** (step 1 of HANDOFF_14): run `29092211473` (2026-07-10 12:19 UTC) logged the 11-flip `Action flips vs previous run:` line and the stored summary explicitly narrated the changes; 63 ok / 0 failed, $0.0845.
+- **Merged session 14** (`feat/session-14-long-term` ff → `main` @ `4240120`, pushed) after the user imported all three dashboards from the worktree path and approved.
+- **S5 — weekly retrospective** (see Current state): migration 005 (applied), `get_week_outcomes`/`get_week_flips` ([src/db.py](src/db.py)), aggregation in [src/analysis/retrospective.py](src/analysis/retrospective.py), `generate_weekly_retrospective` ([src/analysis/claude_client.py](src/analysis/claude_client.py)), Friday trigger + `--force-retro` flag in [src/main.py](src/main.py), `write_weekly_retrospective` (upsert per week-Monday), digest panel-12.
+- **Flip-stability panel**: digest panel-13 (flips-per-day bars, same flip semantics as panel-9).
+- **Trending-unknown persistence**: migration 004 (applied), `write_trending_tickers` upsert in [src/persistence/writers.py](src/persistence/writers.py), wired into main step 8, digest panel-14.
+- **S18 tests**: reddit stopwords/$-prefix/trending threshold, 4h dedup window, `_pct_change` fixtures. **S13**: yfinance internal logger silenced (CRITICAL).
+- **Tests: 55 passed** (was 34; +21). Existing main-harness tests pin a non-Friday `_today` so the retro path stays deterministic.
+- **Validated**: all **27 dashboard rawSql** green live (24 previous + 3 new panels; panels 12/14 legitimately 0 rows until first Friday run / Reddit creds); full dry-run with `--force-retro` through the real API (see HANDOFF_15 for numbers).
 
 ## Done (session 14 — 2026-07-10, long-term reorientation)
 
-On branch **`feat/session-14-long-term`** (off `main` @ `f28053f`), worktree `.claude/worktrees/session-14-long-term`. Pushed, **not merged**.
+On branch **`feat/session-14-long-term`** (off `main` @ `f28053f`), worktree `.claude/worktrees/session-14-long-term`. **Merged 2026-07-11** → `main` @ `4240120`.
 
 - **Merged S17** (`feat/session-13-s17-flips` ff → `main` @ `f28053f`, pushed). Production flip verification deferred to the next scheduled run.
 - **Per-horizon grading** ([src/evaluate_outcomes.py](src/evaluate_outcomes.py)): `Bands` dataclass + `HORIZON_BANDS` for 7/30/90/365 days (√time scaling — user decision); `grade()` takes the horizon; `HORIZONS` derived from the table. 6 new tests in [tests/test_outcomes.py](tests/test_outcomes.py) + [tests/test_prompt_horizon.py](tests/test_prompt_horizon.py).
@@ -238,7 +260,7 @@ Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**;
 ### Wave 3 — Observability & hygiene (done session 09, awaiting merge)
 
 - [x] **Cost telemetry** — done session 09: `ClaudeClient._record_usage` + `log_usage()`, logged at run end ($0.1471 for a 65-call run; cache_write/read=0 confirms the Wave 2 caching removal).
-- [~] **More unit tests.** Session 12 added `_compute_rsi` fixtures, batch-client tests, and `main()` resilience tests (24 total). Still uncovered: `extract_ticker_mentions` stopwords (`IT`, `GO`, `BE`), `_pct_change` fixtures, per-run dedup window (Wave 1). (action-per-phase is covered by [tests/test_actions.py](tests/test_actions.py); `grade()` by [tests/test_outcomes.py](tests/test_outcomes.py).)
+- [x] **More unit tests** — closed session 15 (S18): `extract_ticker_mentions` stopwords, per-run dedup window, and `_pct_change` fixtures joined the session-12 batch-client/RSI/resilience tests. Suite: 55 tests.
 - [x] **Pin `requirements.txt`** — done session 09 (exact pins) + [requirements-dev.txt](requirements-dev.txt).
 - [x] **README.md** — done session 09: root [README.md](README.md) with docs map + Grafana import notes.
 - [x] **Decide outcome-grading semantics** — already resolved in session 06 (WATCH movement-graded, HOLD −10% band; see decisions log). This Wave 3 bullet predated that decision; it's done.
@@ -247,10 +269,10 @@ Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**;
 
 - [x] **Dashboard readability — track-record view (session 10).** New [grafana/track_record_dashboard.json](grafana/track_record_dashboard.json): scorecard header + weekly hit-rate trend (the "when") + hit rate by sector and by RSI band (the "what correct calls share"). All queries validated against the live DB; hit rate = CORRECT ÷ (CORRECT+INCORRECT).
 - [x] **Action-flip detection.** Dashboard half: session 09 (S16, panel-9 day-over-day flips table). Summary half: **done session 13 (S17)** — flips computed in-pipeline (`get_latest_actions` read before persisting) and rendered into the daily-summary prompt with an explicit call-out instruction. (This is the no-notifications substitute.)
-- [ ] **Persist trending-unknown tickers.** Today `find_trending_unknown` results only hit logs/summary text. New table (migration 003) so "should I watchlist this?" signals survive and can trend over time.
+- [x] **Persist trending-unknown tickers** — done session 15: migration 004 `trending_tickers` (applied), per-run upsert (`first_seen` sticks, `times_seen` counts trending runs), digest panel-14. Stays empty until Reddit creds exist.
 - [ ] **Batched Reddit-mention sentiment.** One extra Haiku call per run to classify that run's mentions; fills the always-NULL `reddit_mentions.sentiment` ([src/persistence/writers.py:65](src/persistence/writers.py#L65)). **Gated on Reddit creds existing.**
 - [x] **Confidence-calibration panel (D3, adopted session 05)** — done session 07: panel-11, 4 bands (<0.40 added — real confidences reach 0.25), hit-rate = correct/decided. Already shows monotone calibration for WATCH (59→69→80%).
-- [ ] **S5 — weekly retrospective digest (adopted session 05).** On Friday's 17:00 run, one extra Claude call writes a week-in-review in Spanish (calls vs outcomes, action flips, sector exposure); persist it and add a digest panel. ~1 Haiku call/week.
+- [x] **S5 — weekly retrospective digest (adopted session 05)** — done session 15: Friday runs make one extra Haiku call reviewing the week's matured 30d outcomes, flips, and sector exposure; stored in `weekly_retrospectives` (migration 005, applied), shown in digest panel-12.
 
 ### Fold-in cleanups (no scheduled wave — grab when touching the area)
 
@@ -261,6 +283,9 @@ Scope confirmed with the user on 2026-06-12: **Waves 1–4 are committed work**;
 
 ## Decisions log
 
+- _2026-07-11 (session 15)_ — **S5 storage = a dedicated `weekly_retrospectives` table** (user choice over a variant `daily_market_summary` row): one row per week keyed on its Monday (`week_start` UNIQUE, upsert so retries refresh), `retrospective` TEXT + `stats` JSON carrying the exact aggregates the review was built from. **"Matured this week" is defined as `generated_at + 30d` falling in the last 7 days, not `evaluated_at`** — a backfill/re-grade rewrites `evaluated_at` on old rows and would flood the next retrospective. The prompt gets Python-side aggregates (counts, hit rate, top-5 movers each way), never raw rows, so its size is bounded at any outcome volume. Trigger: Friday runs (`_RETRO_WEEKDAY`), plus a `--force-retro` CLI flag for ad-hoc/testing.
+- _2026-07-11 (session 15)_ — **`trending_tickers` upserts one row per symbol** (not per sighting): `first_seen` sticks, `last_seen`/`mention_count`/`avg_score` reflect the latest run, `times_seen` increments only when `last_seen` actually changes (so same-day retries don't double-count). Rationale: the interesting signal is persistence across runs, which per-sighting rows would bury.
+- _2026-07-11 (session 15)_ — **S13: the whole `yfinance` logger is silenced (CRITICAL)**, not a 404-specific filter: logger filters don't propagate to child loggers, the messages vary by library version, and every real failure path in [src/collectors/prices.py](src/collectors/prices.py) already logs through the module's own logger.
 - _2026-07-10 (session 14)_ — **Long-term orientation declared by the user**: they invest with a ≥1-month horizon (typically a year or more) and will not trade week-to-week — dashboards and predictions must reflect that. Consequences (all four options user-selected): **30d is the headline horizon** on every dashboard; **90d and 365d grading horizons added** (first mature ≈ 2026-08-15 / 2027-05-17); **7d kept as a diagnostic only** (trend-chart series + digest panel-7 rows, never a headline); prompts rewritten to demand a multi-month investment thesis with short-term indicators as entry timing only.
 - _2026-07-10 (session 14)_ — **Grading bands scale ~√time per horizon** (user choice over flat bands): 7d ±2%/5%/10% (neutral/WATCH-move/HOLD-loss, unchanged), 30d ±4%/10%/15%, 90d ±7%/15%/20%, 365d ±15%/30%/30% — so a verdict means the same thing at every horizon (flat bands would make a 1-year WATCH almost always CORRECT). The **1,134 existing 30d rows were deleted and re-graded** under the new bands (user-authorized, same re-derivable pattern as session 06): 470/270/394 → **382/363/389**, headline 30d hit rate 64% → **51%** — the old number was inflated by the too-easy ±2% band, not by model skill.
 - _2026-07-10 (session 14)_ — **Grafana schema-v2 rule refined**: `version` **is valid at the `vizConfig` level** (sibling of `spec`/`kind`/`group`) — the user's Grafana 13.2 exports carry it there — but never inside `vizConfig.spec`. The user's hand-edit had the right level but broken braces (panels fell out of `elements`); dashboards are now hand-repaired programmatically (parse → assert structure → dump), never by manual brace surgery.

@@ -11,7 +11,7 @@ Automated pipeline that generates daily BUY/SELL/HOLD/WATCH/AVOID recommendation
 - **Macro news** — RSS feeds (Reuters, MarketWatch, Yahoo Finance) → Claude identifies themes + affected sectors.
 - **LLM analysis** — Claude Haiku 4.5 generates: macro signals, per-ticker recommendation, daily market summary.
 
-Runs on **GitHub Actions cron** (no server). Reads from the existing `stock-snapshots` MySQL DB and writes to six tables it owns.
+Runs on **GitHub Actions cron** (no server). Reads from the existing `stock-snapshots` MySQL DB and writes to eight tables it owns.
 
 ## Relationship to `stock-snapshots`
 
@@ -23,8 +23,10 @@ A separate sibling project owns `tickers`, `holdings`, `watchlist`, `transaction
 - `macro_signals` — themes detected from headlines.
 - `recommendation_outcomes` — one row per recommendation per horizon (7d/30d/90d/365d; grading bands widen with the horizon, 30d is the headline metric); grades the forward return. Populated separately by `python -m src.evaluate_outcomes`, not by the main pipeline.
 - `price_checks` — one observed price per ticker per day, written by the main run; the evaluator's fallback exit-price source while `price_snapshots` is stale.
+- `trending_tickers` — one row per trending-unknown symbol (upserted per run; `times_seen` counts trending runs). Empty until Reddit credentials exist.
+- `weekly_retrospectives` — one row per week (keyed on its Monday): Claude's week-in-review for a long-term investor + the `stats` JSON it was built from. Written on Friday runs (S5).
 
-Full DDL: [migrations/](migrations/) (001 recommendation tables, 002 outcomes, 003 price_checks).
+Full DDL: [migrations/](migrations/) (001 recommendation tables, 002 outcomes, 003 price_checks, 004 trending_tickers, 005 weekly_retrospectives).
 
 ## Module map
 
@@ -33,7 +35,7 @@ src/
 ├── main.py                 # orchestrator (--dry-run supported)
 ├── evaluate_outcomes.py    # standalone job: grades past recommendations vs realized prices
 ├── config.py               # env-var loader → Config dataclass
-├── db.py                   # PyMySQL connection + get_active_tickers, get_known_symbols
+├── db.py                   # PyMySQL connection + ticker/action/week-outcome/flip queries
 ├── collectors/
 │   ├── prices.py           # yfinance history + RSI/SMA/etc.; fetch_ticker_news + fetch_next_earnings (both feed the per-ticker prompt)
 │   ├── reddit.py           # /r/stocks scraping (PRAW) + ticker extraction + trending detection
@@ -43,9 +45,10 @@ src/
 │   ├── actions.py          # per-phase allowed action sets + coerce_action backstop
 │   ├── macro.py            # thin wrapper around claude_client.analyze_macro
 │   ├── recommendation.py   # thin wrappers: analyze_ticker (ad-hoc) + analyze_tickers_batch (the run)
+│   ├── retrospective.py    # S5: aggregates the week's outcomes/flips/exposure for the retro call
 │   └── summary.py          # thin wrapper around claude_client.generate_daily_summary
 └── persistence/
-    └── writers.py          # writes to all 6 owned tables; 4h dedup window for recommendations
+    └── writers.py          # writes to all 8 owned tables; 4h dedup window for recommendations
 ```
 
 ## Execution flow ([main.py](src/main.py))
@@ -60,10 +63,11 @@ src/
    - **6b — one Message Batches call** with all N per-ticker requests (50% token discount; polled up to 45 min, then canceled).
    - **6c — persist:** each parsed recommendation → `recommendations` (+ `reddit_mentions` for matched posts). Unparseable/errored entries count as failures; nothing is persisted for them. Action flips vs each ticker's previous stored recommendation are collected here (`get_latest_actions` is read just before this phase, S17).
 7. Write Reddit mentions for posts with no matched ticker (NULL-ticker rows are deduped by a pre-SELECT, since the UNIQUE key can't compare NULLs).
-8. Detect trending unknown tickers (filter: score > 100, mentions > 3).
+8. Detect trending unknown tickers (filter: score > 100, mentions > 3) and upsert them into `trending_tickers`.
 9. **Claude call #2** — daily summary → `daily_market_summary`; the prompt includes the run's action flips ("Cambios de recomendación vs la corrida anterior") so the summary calls them out. On failure the summary returns `None` and nothing is written (never an error placeholder).
+10. **Fridays only (or `--force-retro`): Claude call #3** — weekly retrospective → `weekly_retrospectives` (S5): reviews the calls whose 30d horizon matured that week, the week's flips, and sector exposure. Same failure rule: `None` is never persisted, and a retro failure can't kill the run.
 
-Total Claude API interactions per run: 2 plain calls (macro, summary) + 1 batch of N ticker requests. Usage and estimated cost (batch tokens at the 50% rate) are logged at run end.
+Total Claude API interactions per run: 2 plain calls (macro, summary; +1 retro on Fridays) + 1 batch of N ticker requests. Usage and estimated cost (batch tokens at the 50% rate) are logged at run end.
 
 ## Infrastructure
 

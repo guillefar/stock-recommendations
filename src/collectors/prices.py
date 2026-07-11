@@ -6,6 +6,12 @@ import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
+# yfinance logs its own ERROR line (e.g. an HTTP 404 when an ETF has no
+# earnings calendar) before our except clauses ever run. Those are cosmetic —
+# every failure path here already logs through this module's logger — so the
+# library's internal logger (and its children) is silenced outright (S13).
+logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+
 
 def fetch_prices_and_indicators(symbol: str) -> dict:
     """Fetches 1y of OHLCV history and computes all technical indicators."""

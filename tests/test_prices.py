@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 import pandas as pd
 
-from src.collectors.prices import _compute_rsi, _pick_next_earnings
+from src.collectors.prices import _compute_rsi, _pct_change, _pick_next_earnings
 
 TODAY = date(2026, 6, 12)
 
@@ -51,3 +51,18 @@ def test_rsi_mixed_series_in_open_interval():
 
 def test_rsi_too_short_series_returns_none():
     assert _compute_rsi(pd.Series([100.0, 101.0]), 14) is None
+
+
+def test_pct_change_uses_close_n_days_back():
+    prices = pd.Series([100.0, 105.0, 110.0])
+    assert _pct_change(prices, 1) == 110.0 / 105.0 - 1
+    assert _pct_change(prices, 2) == 110.0 / 100.0 - 1
+
+
+def test_pct_change_insufficient_history_returns_none():
+    assert _pct_change(pd.Series([100.0, 101.0]), 2) is None
+
+
+def test_pct_change_zero_base_returns_none():
+    # A zero past close (bad data) must not divide — None, not ±inf.
+    assert _pct_change(pd.Series([0.0, 50.0]), 1) is None
