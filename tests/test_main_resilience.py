@@ -17,7 +17,14 @@ def _run_main(monkeypatch, macro_raises: bool, summary_result):
     monkeypatch.setattr(main_mod, "_today", lambda: date(2026, 7, 6))
     monkeypatch.setattr(main_mod, "load_config", lambda: SimpleNamespace())
     monkeypatch.setattr(
-        main_mod, "ClaudeClient", lambda cfg: SimpleNamespace(log_usage=lambda: None)
+        main_mod, "ClaudeClient",
+        lambda cfg: SimpleNamespace(
+            log_usage=lambda: None,
+            usage_snapshot=lambda: {"calls": 0, "input": 0, "output": 0,
+                                    "batch_input": 0, "batch_output": 0,
+                                    "cache_write": 0, "cache_read": 0},
+            estimated_cost_usd=lambda: 0.0,
+        )
     )
     monkeypatch.setattr(
         main_mod, "get_connection",
@@ -58,6 +65,7 @@ def _run_main(monkeypatch, macro_raises: bool, summary_result):
             calls["recommendations"].append(rec["action"]),
     )
     monkeypatch.setattr(main_mod, "write_reddit_mentions", lambda *a, **kw: None)
+    monkeypatch.setattr(main_mod, "write_run_metrics", lambda *a, **kw: None)
     monkeypatch.setattr(
         main_mod, "write_daily_summary",
         lambda conn, summary, count, dry_run=False: calls["summaries"].append(summary),

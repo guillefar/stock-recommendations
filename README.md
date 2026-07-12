@@ -48,11 +48,11 @@ Required env vars: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`,
 
 ## Database
 
-Migrations in [migrations/](migrations/) (apply in order: `001` → `007`). This
+Migrations in [migrations/](migrations/) (apply in order: `001` → `008`). This
 project **only writes** to `recommendations`, `daily_market_summary`,
 `reddit_mentions`, `macro_signals`, `recommendation_outcomes`, `price_checks`,
-`trending_tickers`, `weekly_retrospectives`, and `prediction_patterns`.
-It never writes to `stock-snapshots` tables.
+`trending_tickers`, `weekly_retrospectives`, `prediction_patterns`, and
+`run_metrics`. It never writes to `stock-snapshots` tables.
 
 ## Grafana dashboards
 
@@ -64,8 +64,9 @@ Five dashboards live in [grafana/](grafana/), authored in **schema v2**
   ticker's own historical hit rate) plus the weekly hit-rate trend.
 - `daily_digest_dashboard.json` — the daily digest (summary, recommendations,
   macro signals, outcomes, hit-rate and calibration panels, the weekly
-  retrospective, flips-per-run trend, trending watchlist candidates, and the
-  Claude-mined winning/losing prediction patterns with their narrative).
+  retrospective, flips-per-run trend, trending watchlist candidates, the
+  Claude-mined winning/losing prediction patterns with their narrative, and
+  the per-run cost trend from `run_metrics`).
 - `recommendations_dashboard.json` — recommendation/confidence history.
 - `track_record_dashboard.json` — model accuracy over time: a scorecard header
   (overall hit rate, decisiveness, sample size), a **weekly hit-rate trend**

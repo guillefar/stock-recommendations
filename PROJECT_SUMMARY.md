@@ -26,8 +26,9 @@ A separate sibling project owns `tickers`, `holdings`, `watchlist`, `transaction
 - `trending_tickers` — one row per trending-unknown symbol (upserted per run; `times_seen` counts trending runs). Empty until Reddit credentials exist.
 - `weekly_retrospectives` — one row per week (keyed on its Monday): Claude's week-in-review for a long-term investor + the `stats` JSON it was built from. Written on Friday runs (S5).
 - `prediction_patterns` — one row per pattern-mining run (Fridays; append-only, newest row = current set): Claude's evolving patterns on when the system's calls are right or wrong, plus the narrative and the `stats` aggregates it was fed (session 22).
+- `run_metrics` — one row per completed run (append-only; dry-runs never write): the run's Claude usage totals (batched tokens separate — the Batches API bills 50%), estimated cost in USD, and ok/failed ticker counts (session 24). Makes the cost trend queryable instead of log-only.
 
-Full DDL: [migrations/](migrations/) (001 recommendation tables, 002 outcomes, 003 price_checks, 004 trending_tickers, 005 weekly_retrospectives, 006 fundamentals column, 007 prediction_patterns).
+Full DDL: [migrations/](migrations/) (001 recommendation tables, 002 outcomes, 003 price_checks, 004 trending_tickers, 005 weekly_retrospectives, 006 fundamentals column, 007 prediction_patterns, 008 run_metrics).
 
 ## Module map
 
@@ -69,8 +70,9 @@ src/
 9. **Claude call #2** — daily summary → `daily_market_summary`; the prompt includes the run's action flips ("Cambios de recomendación vs la corrida anterior") so the summary calls them out, and carries only the first sentence of each recommendation's reasoning (the full text is stored per rec; 63 full reasonings dominated this call's input tokens). On failure the summary returns `None` and nothing is written (never an error placeholder).
 10. **Fridays only (or `--force-retro`): Claude call #3** — weekly retrospective → `weekly_retrospectives` (S5): reviews the calls whose 30d horizon matured that week, the week's flips, and sector exposure. Same failure rule: `None` is never persisted, and a retro failure can't kill the run.
 11. **Fridays only (or `--force-patterns`): Claude call #4** — pattern mining → `prediction_patterns` (session 22): every graded 30d outcome is bucketed in Python (action, confidence band, RSI band, price-vs-SMA50, 52w position, volume, ETF-vs-stock, sector, P/E band, dividend status + action×RSI and action×type crosses) and fed to Claude together with its own previous pattern set; it returns the refined set (NEW/CONFIRMED/REVISED/RETIRED with evidence + confidence) and a Spanish narrative. Append-only rows; same failure rule as the retro.
+12. **Run metrics** → `run_metrics` (session 24): the run's accumulated Claude usage (`ClaudeClient.usage_snapshot()`), estimated cost and ok/failed ticker counts are appended as one row. Runs last so every call is counted; a failure here never kills the run; dry-runs never write.
 
-Total Claude API interactions per run: 2 plain calls (macro, summary; +2 on Fridays — retro and pattern mining) + 1 batch of N ticker requests. Usage and estimated cost (batch tokens at the 50% rate) are logged at run end.
+Total Claude API interactions per run: 2 plain calls (macro, summary; +2 on Fridays — retro and pattern mining) + 1 batch of N ticker requests. Usage and estimated cost (batch tokens at the 50% rate) are logged at run end and persisted to `run_metrics`.
 
 ## Infrastructure
 

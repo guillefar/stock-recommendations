@@ -101,6 +101,14 @@ class ClaudeClient:
         self._usage["cache_write"] += getattr(u, "cache_creation_input_tokens", 0) or 0
         self._usage["cache_read"] += getattr(u, "cache_read_input_tokens", 0) or 0
 
+    def usage_snapshot(self) -> dict:
+        """A copy of the run's accumulated usage counters (session 24).
+
+        Keys: calls, input, output, batch_input, batch_output, cache_write,
+        cache_read. Read at run end by main step 12 to persist run_metrics.
+        """
+        return dict(self._usage)
+
     def estimated_cost_usd(self) -> float:
         u = self._usage
         plain = sum(u[k] * _PRICE_PER_MTOK[k] for k in _PRICE_PER_MTOK)

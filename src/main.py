@@ -44,6 +44,7 @@ from src.persistence.writers import (
     write_price_check,
     write_recommendation,
     write_reddit_mentions,
+    write_run_metrics,
     write_trending_tickers,
     write_weekly_retrospective,
 )
@@ -357,6 +358,23 @@ def main(dry_run: bool = False, force_retro: bool = False, force_patterns: bool 
                 write_prediction_patterns(conn, mined, stats, horizon=30, dry_run=dry_run)
             elif stats is not None:
                 logger.error("No prediction patterns persisted this run")
+
+        # ── 12. Run metrics (session 24 — cost telemetry to the DB) ─────────
+        # Persists the run's accumulated Claude usage + cost + ok/failed
+        # counts. Runs last so every call (macro, batch, summary, Friday
+        # retro/patterns) is counted. A failure here must not kill the run.
+        try:
+            conn.ping(reconnect=True)
+            write_run_metrics(
+                conn,
+                claude.usage_snapshot(),
+                claude.estimated_cost_usd(),
+                tickers_ok=len(all_recommendations),
+                tickers_failed=len(failed_symbols),
+                dry_run=dry_run,
+            )
+        except Exception:
+            logger.exception("Writing run metrics failed")
     finally:
         conn.close()
 

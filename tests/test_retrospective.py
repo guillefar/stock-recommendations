@@ -108,7 +108,14 @@ def _run_main(monkeypatch, today, force_retro, retro_result=_RETRO_JSON):
     written = []
     monkeypatch.setattr(main_mod, "load_config", lambda: SimpleNamespace())
     monkeypatch.setattr(
-        main_mod, "ClaudeClient", lambda cfg: SimpleNamespace(log_usage=lambda: None)
+        main_mod, "ClaudeClient",
+        lambda cfg: SimpleNamespace(
+            log_usage=lambda: None,
+            usage_snapshot=lambda: {"calls": 0, "input": 0, "output": 0,
+                                    "batch_input": 0, "batch_output": 0,
+                                    "cache_write": 0, "cache_read": 0},
+            estimated_cost_usd=lambda: 0.0,
+        )
     )
     monkeypatch.setattr(
         main_mod, "get_connection",
@@ -145,6 +152,7 @@ def _run_main(monkeypatch, today, force_retro, retro_result=_RETRO_JSON):
     monkeypatch.setattr(main_mod, "write_macro_signals", lambda conn, s, dry_run=False: [])
     monkeypatch.setattr(main_mod, "write_recommendation", lambda *a, **kw: None)
     monkeypatch.setattr(main_mod, "write_reddit_mentions", lambda *a, **kw: None)
+    monkeypatch.setattr(main_mod, "write_run_metrics", lambda *a, **kw: None)
     monkeypatch.setattr(main_mod, "write_daily_summary", lambda *a, **kw: None)
     monkeypatch.setattr(main_mod, "write_trending_tickers", lambda *a, **kw: None)
     monkeypatch.setattr(

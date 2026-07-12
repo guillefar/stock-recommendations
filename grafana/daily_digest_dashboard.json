@@ -2537,6 +2537,122 @@
           }
         }
       }
+    },
+    "panel-17": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT\n  UNIX_TIMESTAMP(run_at) AS time_sec,\n  estimated_cost_usd     AS cost_usd\nFROM run_metrics\nWHERE $__timeFilter(run_at)\nORDER BY time_sec"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Session 24: coste estimado en USD de cada corrida del pipeline (todas las llamadas a Claude: macro + batch de tickers + resumen + retro/patrones de los viernes; los tokens del batch ya van al 50%). Una barra por corrida — los dry-runs nunca escriben. Sirve para ver la tendencia de coste (p. ej. el ahorro de ~-40% de la cadencia L/X/V) con datos, no con líneas de log. Vacío hasta la primera corrida de producción tras el merge de la sesión 24.",
+        "id": 17,
+        "links": [],
+        "title": "Coste por corrida (USD)",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "drawStyle": "bars",
+                  "fillOpacity": 85,
+                  "lineWidth": 1,
+                  "barAlignment": 0,
+                  "pointSize": 5,
+                  "showPoints": "never",
+                  "axisPlacement": "auto",
+                  "axisLabel": "",
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "decimals": 4,
+                "unit": "currencyUSD",
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "cost_usd"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "green"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "legend": {
+                "calcs": [],
+                "displayMode": "list",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "mode": "multi",
+                "sort": "none"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "layout": {
@@ -2749,6 +2865,19 @@
             "width": 24,
             "x": 0,
             "y": 114
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-17"
+            },
+            "height": 8,
+            "width": 24,
+            "x": 0,
+            "y": 122
           }
         }
       ]

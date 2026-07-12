@@ -332,3 +332,57 @@ def write_trending_tickers(
                 (t["symbol"][:10], today, today, t.get("mention_count", 0), t.get("avg_score")),
             )
     logger.info(f"Upserted {len(trending)} trending tickers")
+
+
+def write_run_metrics(
+    conn: pymysql.Connection,
+    usage: dict,
+    estimated_cost_usd: float,
+    tickers_ok: int,
+    tickers_failed: int,
+    dry_run: bool = False,
+) -> None:
+    """Appends one cost-telemetry row for the completed run (session 24).
+
+    `usage` is ClaudeClient.usage_snapshot(); batched tokens are stored
+    separately because the Batches API bills them at 50%. Append, not upsert:
+    the run history is the audit trail. Dry-runs never write, so every row is
+    a real production/manual run.
+    """
+    if dry_run:
+        logger.info(
+            f"[dry-run] Would insert run metrics "
+            f"({usage.get('calls', 0)} calls, ${estimated_cost_usd:.4f}, "
+            f"ok={tickers_ok} failed={tickers_failed})"
+        )
+        return
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO run_metrics
+              (run_at, model_used, calls, input_tokens, output_tokens,
+               batch_input_tokens, batch_output_tokens,
+               cache_write_tokens, cache_read_tokens,
+               estimated_cost_usd, tickers_ok, tickers_failed)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                _utcnow(),
+                MODEL,
+                usage.get("calls", 0),
+                usage.get("input", 0),
+                usage.get("output", 0),
+                usage.get("batch_input", 0),
+                usage.get("batch_output", 0),
+                usage.get("cache_write", 0),
+                usage.get("cache_read", 0),
+                round(estimated_cost_usd, 6),
+                tickers_ok,
+                tickers_failed,
+            ),
+        )
+    logger.info(
+        f"Inserted run metrics row ({usage.get('calls', 0)} calls, "
+        f"${estimated_cost_usd:.4f})"
+    )
