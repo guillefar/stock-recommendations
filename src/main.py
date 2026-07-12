@@ -9,6 +9,11 @@ load_dotenv()
 
 from src.analysis.claude_client import ClaudeClient
 from src.analysis.macro import run_macro_analysis
+from src.analysis.patterns import (
+    build_patterns_data,
+    run_pattern_analysis,
+    summarize_features,
+)
 from src.analysis.recommendation import run_ticker_recommendations_batch
 from src.analysis.retrospective import build_retro_data, run_weekly_retrospective
 from src.analysis.summary import run_daily_summary
@@ -27,12 +32,15 @@ from src.db import (
     get_connection,
     get_known_symbols,
     get_latest_actions,
+    get_latest_patterns,
+    get_outcome_features,
     get_week_flips,
     get_week_outcomes,
 )
 from src.persistence.writers import (
     write_daily_summary,
     write_macro_signals,
+    write_prediction_patterns,
     write_price_check,
     write_recommendation,
     write_reddit_mentions,
@@ -72,7 +80,7 @@ def _pick_macro_signal_id(sector, macro_signals: list[dict], macro_signal_ids: l
     return fallback
 
 
-def main(dry_run: bool = False, force_retro: bool = False) -> None:
+def main(dry_run: bool = False, force_retro: bool = False, force_patterns: bool = False) -> None:
     logger.info(f"Starting stock-recommendations run (dry_run={dry_run})")
     cfg = load_config()
 
@@ -227,7 +235,8 @@ def main(dry_run: bool = False, force_retro: bool = False) -> None:
                 conn.ping(reconnect=True)
                 write_recommendation(
                     conn, ticker_data["id"], recommendation, ticker_data["technical"],
-                    ticker_data["sentiment"], relevant_macro_id, dry_run=dry_run,
+                    ticker_data["sentiment"], relevant_macro_id,
+                    fundamentals=ticker_data.get("fundamentals"), dry_run=dry_run,
                 )
                 posts_for_ticker = ticker_mentions.get(symbol, [])
                 if posts_for_ticker:
@@ -317,6 +326,37 @@ def main(dry_run: bool = False, force_retro: bool = False) -> None:
                 write_weekly_retrospective(conn, week_start, retro, retro_data, dry_run=dry_run)
             else:
                 logger.error(f"No weekly retrospective persisted for week {week_start}")
+
+        # ── 11. Pattern mining (session 22 — Fridays, 1 extra Claude call) ───
+        # What do the accurate predictions share? Aggregates every graded 30d
+        # outcome into per-bucket hit rates, feeds them + the previous pattern
+        # set to Claude, and appends the refined set. Never kills the run.
+        if force_patterns or today.weekday() == _RETRO_WEEKDAY:
+            logger.info("Mining prediction patterns...")
+            mined = None
+            stats = None
+            try:
+                conn.ping(reconnect=True)
+                feature_rows = get_outcome_features(conn, horizon=30)
+                if not feature_rows:
+                    logger.info("No graded outcomes yet — skipping pattern mining")
+                else:
+                    stats = summarize_features(feature_rows, horizon=30)
+                    previous = get_latest_patterns(conn)
+                    mined = run_pattern_analysis(
+                        claude, build_patterns_data(stats, previous)
+                    )
+            except Exception:
+                logger.exception("Pattern mining failed")
+            if mined is not None:
+                logger.info(
+                    "Patterns: "
+                    f"{[(p['name'], p['status']) for p in mined.get('patterns', [])]}"
+                )
+                conn.ping(reconnect=True)
+                write_prediction_patterns(conn, mined, stats, horizon=30, dry_run=dry_run)
+            elif stats is not None:
+                logger.error("No prediction patterns persisted this run")
     finally:
         conn.close()
 
@@ -346,5 +386,9 @@ if __name__ == "__main__":
         "--force-retro", action="store_true",
         help="Generate the weekly retrospective regardless of weekday",
     )
+    parser.add_argument(
+        "--force-patterns", action="store_true",
+        help="Run the prediction-pattern mining regardless of weekday",
+    )
     args = parser.parse_args()
-    main(dry_run=args.dry_run, force_retro=args.force_retro)
+    main(dry_run=args.dry_run, force_retro=args.force_retro, force_patterns=args.force_patterns)

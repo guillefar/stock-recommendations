@@ -62,6 +62,17 @@ _RETRO_SYSTEM = (
     "maquillar los fallos. Respondes en JSON estricto, sin texto adicional."
 )
 
+_PATTERNS_SYSTEM = (
+    "Eres analista cuantitativo. Buscas patrones honestos en el historial de "
+    "aciertos y fallos de un sistema de recomendaciones bursátiles: qué "
+    "características comparten las predicciones correctas y las incorrectas. "
+    "Eres escéptico con las muestras pequeñas: un bucket con pocas llamadas "
+    "decididas no sostiene un patrón por sí solo. Mantienes y refinas un "
+    "conjunto de patrones entre semanas: confirmas, revisas o retiras los "
+    "existentes según la evidencia nueva, y solo añades patrones nuevos con "
+    "evidencia concreta. Respondes en JSON estricto, sin texto adicional."
+)
+
 
 class ClaudeClient:
     def __init__(self, cfg: Config):
@@ -566,6 +577,130 @@ para las posiciones a 1+ mes vista. Sé honesto con los fallos."""
                         "type": "object",
                         "properties": {"retrospective": {"type": "string"}},
                         "required": ["retrospective"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+        )
+        self._record_usage(response)
+        return _structured_json(response, default=None)
+
+    def generate_pattern_analysis(self, patterns_data: dict) -> dict | None:
+        """Mines/refines the winning-prediction pattern set (session 22; Fridays).
+
+        `patterns_data` comes from src.analysis.patterns.build_patterns_data:
+        per-bucket hit-rate aggregates over every graded outcome plus the
+        previous pattern set, so Claude evolves its patterns week over week
+        instead of rediscovering them.
+        """
+        stats = patterns_data.get("stats", {})
+        horizon = stats.get("horizon_days", 30)
+        overall = stats.get("overall", {})
+
+        def _bucket_lines(buckets: dict) -> str:
+            # Sorted by decided-call volume so the meaningful buckets lead.
+            items = sorted(
+                buckets.items(),
+                key=lambda kv: kv[1]["correct"] + kv[1]["incorrect"],
+                reverse=True,
+            )
+            return "\n".join(
+                f"  - {label}: "
+                + (
+                    f"hit rate {c['hit_rate_pct']}% "
+                    if c["hit_rate_pct"] is not None
+                    else "hit rate N/A "
+                )
+                + f"({c['correct']}C/{c['incorrect']}I/{c['neutral']}N, "
+                f"{c['correct'] + c['incorrect']} decididas)"
+                for label, c in items
+            ) or "  (sin datos)"
+
+        dims_text = "\n".join(
+            f"- {name}:\n{_bucket_lines(buckets)}"
+            for name, buckets in stats.get("dimensions", {}).items()
+        )
+
+        previous = patterns_data.get("previous_patterns")
+        previous_text = (
+            json.dumps(previous, ensure_ascii=False, indent=1)
+            if previous
+            else "(ninguno — esta es la primera ejecución del minado de patrones)"
+        )
+
+        user_msg = f"""Historial de aciertos del sistema al horizonte de {horizon} días.
+Hit rate = CORRECT / (CORRECT + INCORRECT); las NEUTRAL no cuentan.
+Global: {overall.get('correct', 0)}C/{overall.get('incorrect', 0)}I/{overall.get('neutral', 0)}N — hit rate {overall.get('hit_rate_pct')}% sobre {stats.get('total_outcomes', 0)} resultados.
+
+Hit rate por dimensión y bucket (C=correctas, I=incorrectas, N=neutrales):
+{dims_text}
+
+Patrones vigentes de la semana anterior (tu propio análisis previo):
+{previous_text}
+
+Genera:
+- `patterns`: lista (máximo 8) de patrones sobre cuándo acierta o falla el
+  sistema. Para cada patrón vigente de la semana anterior decide su `status`:
+  CONFIRMED (la evidencia nueva lo sostiene), REVISED (sigue pero con matices
+  — actualiza description/evidence), o RETIRED (la evidencia ya no lo
+  sostiene; consérvalo en la lista con ese status y explica por qué en
+  evidence). Añade patrones NEW solo con evidencia concreta. `evidence` debe
+  citar buckets, hit rates y tamaños de muestra exactos de los datos de
+  arriba. `confidence` es un número entre 0 y 1; desconfía de buckets con
+  menos de ~20 llamadas decididas — refléjalo en una confidence baja.
+  Compara siempre contra el hit rate global: un patrón es una desviación,
+  no el promedio.
+- `narrative`: 2-4 párrafos en markdown (español) para un inversor de largo
+  plazo: qué comparten las predicciones acertadas esta semana, qué cambió
+  respecto a los patrones previos, y qué implican los patrones para confiar
+  más o menos en ciertas llamadas."""
+
+        response = self._client.messages.create(
+            model=MODEL,
+            max_tokens=3072,
+            system=_PATTERNS_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+            output_config={
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "patterns": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {"type": "string"},
+                                        "description": {"type": "string"},
+                                        "evidence": {"type": "string"},
+                                        "status": {
+                                            "type": "string",
+                                            "enum": [
+                                                "NEW",
+                                                "CONFIRMED",
+                                                "REVISED",
+                                                "RETIRED",
+                                            ],
+                                        },
+                                        # NOTE: the structured-output validator
+                                        # rejects minimum/maximum for numbers —
+                                        # the 0..1 range lives in the prompt.
+                                        "confidence": {"type": "number"},
+                                    },
+                                    "required": [
+                                        "name",
+                                        "description",
+                                        "evidence",
+                                        "status",
+                                        "confidence",
+                                    ],
+                                    "additionalProperties": False,
+                                },
+                            },
+                            "narrative": {"type": "string"},
+                        },
+                        "required": ["patterns", "narrative"],
                         "additionalProperties": False,
                     },
                 }

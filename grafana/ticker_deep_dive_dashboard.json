@@ -337,7 +337,7 @@
             },
             "options": {
               "mode": "markdown",
-              "content": "### How to read this dashboard\n\nUse the **Ticker** selector (top-left) to pick one or more stocks/ETFs — every panel scopes to the selection and the time picker.\n\n**Hit rate = CORRECT ÷ (CORRECT + INCORRECT)** at the **30-day** horizon (the long-term headline metric); *neutral calls are excluded*, so a single ticker often has a small sample — check *Decided calls* before trusting the rate.\n\n- The **price history** starts 2026-06-12 (when in-repo daily price collection began). Orange markers flag **action flips** (the call changed vs the previous run) — hover for old → new action; unchanged daily calls are not marked.\n- **Hit rate by horizon** fills in as outcomes mature (first 90d ≈ Oct 2026, first 1y ≈ May 2027); grading bands widen with the horizon (a 1-year BUY must beat +15%, not +4%).\n- **avg return %** is the mean forward return of graded calls — direction-blind (a correct SELL can coexist with a positive underlying return).\n- The **call history** table shows every call in range with its 30-day grade (empty verdict = not matured yet or no exit price).",
+              "content": "### How to read this dashboard\n\nUse the **Ticker** selector (top-left) to pick one or more stocks/ETFs — every panel scopes to the selection and the time picker.\n\n**Hit rate = CORRECT ÷ (CORRECT + INCORRECT)** at the **30-day** horizon (the long-term headline metric); *neutral calls are excluded*, so a single ticker often has a small sample — check *Decided calls* before trusting the rate.\n\n- The **price history** starts 2026-06-12 (when in-repo daily price collection began). Orange markers flag **action flips** (the call changed vs the previous run) — hover for old → new action; unchanged daily calls are not marked.\n- **Hit rate by horizon** fills in as outcomes mature (first 90d ≈ mid-Aug 2026, first 1y ≈ May 2027); grading bands widen with the horizon (a 1-year BUY must beat +15%, not +4%).\n- **avg return %** is the mean forward return of graded calls — direction-blind (a correct SELL can coexist with a positive underlying return).\n- The **call history** table shows every call in range with its **30d, 90d and 1y grades** side by side (empty verdict = that horizon hasn't matured yet or no exit price exists; 30d stays the headline).",
               "code": {
                 "language": "plaintext",
                 "showLineNumbers": false,
@@ -816,7 +816,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT r.generated_at AS `called at`,\n  t.symbol,\n  r.action,\n  ROUND(r.confidence*100,0) AS `confidence %`,\n  CAST(JSON_EXTRACT(r.technical,'$.price') AS DECIMAL(12,2)) AS `entry price`,\n  o.verdict AS `30d verdict`,\n  ROUND(100*o.forward_return,1) AS `30d return %`,\n  LEFT(r.reasoning, 200) AS reasoning\nFROM recommendations r\nJOIN tickers t ON r.ticker_id=t.id\nLEFT JOIN recommendation_outcomes o\n  ON o.recommendation_id=r.id AND o.horizon_days=30\nWHERE t.symbol IN ($ticker) AND $__timeFilter(r.generated_at)\nORDER BY r.generated_at DESC"
+                      "rawSql": "SELECT r.generated_at AS `called at`,\n  t.symbol,\n  r.action,\n  ROUND(r.confidence*100,0) AS `confidence %`,\n  CAST(JSON_EXTRACT(r.technical,'$.price') AS DECIMAL(12,2)) AS `entry price`,\n  o.verdict AS `30d verdict`,\n  ROUND(100*o.forward_return,1) AS `30d return %`,\n  o90.verdict AS `90d verdict`,\n  ROUND(100*o90.forward_return,1) AS `90d return %`,\n  o365.verdict AS `1y verdict`,\n  ROUND(100*o365.forward_return,1) AS `1y return %`,\n  LEFT(r.reasoning, 200) AS reasoning\nFROM recommendations r\nJOIN tickers t ON r.ticker_id=t.id\nLEFT JOIN recommendation_outcomes o\n  ON o.recommendation_id=r.id AND o.horizon_days=30\nLEFT JOIN recommendation_outcomes o90\n  ON o90.recommendation_id=r.id AND o90.horizon_days=90\nLEFT JOIN recommendation_outcomes o365\n  ON o365.recommendation_id=r.id AND o365.horizon_days=365\nWHERE t.symbol IN ($ticker) AND $__timeFilter(r.generated_at)\nORDER BY r.generated_at DESC"
                     },
                     "version": "v0"
                   },
@@ -828,7 +828,7 @@
             "transformations": []
           }
         },
-        "description": "Every recommendation for the selection in range (newest first) with its 30-day grade. Empty verdict = the call hasn't matured yet or no exit price exists for its window.",
+        "description": "Every recommendation for the selection in range (newest first) with its 30-day, 90-day and 1-year grades. Empty verdict = that horizon hasn't matured yet or no exit price exists for its window. First 90d verdicts mature ~2026-08-15, first 1y verdicts ~2027-05-17; 30d stays the headline metric.",
         "id": 8,
         "links": [],
         "title": "Call history",
@@ -1032,6 +1032,138 @@
                   "matcher": {
                     "id": "byName",
                     "options": "30d return %"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "percent"
+                    },
+                    {
+                      "id": "custom.width",
+                      "value": 110
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "90d verdict"
+                  },
+                  "properties": [
+                    {
+                      "id": "mappings",
+                      "value": [
+                        {
+                          "type": "value",
+                          "options": {
+                            "CORRECT": {
+                              "color": "green",
+                              "index": 0
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "INCORRECT": {
+                              "color": "red",
+                              "index": 1
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "NEUTRAL": {
+                              "color": "text",
+                              "index": 2
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "color-text"
+                      }
+                    },
+                    {
+                      "id": "custom.width",
+                      "value": 110
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "90d return %"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "percent"
+                    },
+                    {
+                      "id": "custom.width",
+                      "value": 110
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "1y verdict"
+                  },
+                  "properties": [
+                    {
+                      "id": "mappings",
+                      "value": [
+                        {
+                          "type": "value",
+                          "options": {
+                            "CORRECT": {
+                              "color": "green",
+                              "index": 0
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "INCORRECT": {
+                              "color": "red",
+                              "index": 1
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "NEUTRAL": {
+                              "color": "text",
+                              "index": 2
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "color-text"
+                      }
+                    },
+                    {
+                      "id": "custom.width",
+                      "value": 110
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "1y return %"
                   },
                   "properties": [
                     {

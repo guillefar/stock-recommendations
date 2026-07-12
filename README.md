@@ -27,6 +27,7 @@ cp .env.example .env                   # fill in DB_* + ANTHROPIC_API_KEY (+ opt
 python -m src.main --dry-run           # full run, logs only — no DB writes
 python -m src.main                      # real run (writes recommendations + price_checks)
 python -m src.main --force-retro       # also generate the weekly retrospective off-Friday
+python -m src.main --force-patterns    # also run the prediction-pattern mining off-Friday
 python -m src.evaluate_outcomes --dry-run   # grade matured recommendations
 python -m pytest tests/ -q             # unit tests (pure logic, no DB/API)
 ```
@@ -47,10 +48,10 @@ Required env vars: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`,
 
 ## Database
 
-Migrations in [migrations/](migrations/) (apply in order: `001` → `005`). This
+Migrations in [migrations/](migrations/) (apply in order: `001` → `007`). This
 project **only writes** to `recommendations`, `daily_market_summary`,
 `reddit_mentions`, `macro_signals`, `recommendation_outcomes`, `price_checks`,
-`trending_tickers`, and `weekly_retrospectives`.
+`trending_tickers`, `weekly_retrospectives`, and `prediction_patterns`.
 It never writes to `stock-snapshots` tables.
 
 ## Grafana dashboards
@@ -63,7 +64,8 @@ Five dashboards live in [grafana/](grafana/), authored in **schema v2**
   ticker's own historical hit rate) plus the weekly hit-rate trend.
 - `daily_digest_dashboard.json` — the daily digest (summary, recommendations,
   macro signals, outcomes, hit-rate and calibration panels, the weekly
-  retrospective, flips-per-run trend, and trending watchlist candidates).
+  retrospective, flips-per-run trend, trending watchlist candidates, and the
+  Claude-mined winning/losing prediction patterns with their narrative).
 - `recommendations_dashboard.json` — recommendation/confidence history.
 - `track_record_dashboard.json` — model accuracy over time: a scorecard header
   (overall hit rate, decisiveness, sample size), a **weekly hit-rate trend**
@@ -75,7 +77,7 @@ Five dashboards live in [grafana/](grafana/), authored in **schema v2**
 - `ticker_deep_dive_dashboard.json` — **per-stock track record**: a multi-select
   **Ticker** variable scopes every panel — 30d hit-rate scorecard, price history
   (from `price_checks`), hit rate by horizon, weekly verdict bars, and the full
-  call history with each call's 30-day grade.
+  call history with each call's 30-day, 90-day and 1-year grades side by side.
 
 To import: **Dashboards → New → Import**, paste the JSON, and select your MySQL
 datasource when prompted. Date navigation uses the **time-range picker** (the

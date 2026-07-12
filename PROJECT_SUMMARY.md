@@ -17,7 +17,7 @@ Runs on **GitHub Actions cron** (no server). Reads from the existing `stock-snap
 
 A separate sibling project owns `tickers`, `holdings`, `watchlist`, `transactions`, `price_snapshots`. This project **only reads** those tables. It owns:
 
-- `recommendations` — one row per ticker per run.
+- `recommendations` — one row per ticker per run. Since session 22 each row also stores the `fundamentals` JSON snapshot Claude saw (equities only; NULL otherwise and for all pre-s22 rows).
 - `daily_market_summary` — one row per calendar date.
 - `reddit_mentions` — audit trail of posts referencing tickers.
 - `macro_signals` — themes detected from headlines.
@@ -25,8 +25,9 @@ A separate sibling project owns `tickers`, `holdings`, `watchlist`, `transaction
 - `price_checks` — one observed price per ticker per day, written by the main run; the evaluator's fallback exit-price source while `price_snapshots` is stale.
 - `trending_tickers` — one row per trending-unknown symbol (upserted per run; `times_seen` counts trending runs). Empty until Reddit credentials exist.
 - `weekly_retrospectives` — one row per week (keyed on its Monday): Claude's week-in-review for a long-term investor + the `stats` JSON it was built from. Written on Friday runs (S5).
+- `prediction_patterns` — one row per pattern-mining run (Fridays; append-only, newest row = current set): Claude's evolving patterns on when the system's calls are right or wrong, plus the narrative and the `stats` aggregates it was fed (session 22).
 
-Full DDL: [migrations/](migrations/) (001 recommendation tables, 002 outcomes, 003 price_checks, 004 trending_tickers, 005 weekly_retrospectives).
+Full DDL: [migrations/](migrations/) (001 recommendation tables, 002 outcomes, 003 price_checks, 004 trending_tickers, 005 weekly_retrospectives, 006 fundamentals column, 007 prediction_patterns).
 
 ## Module map
 
@@ -35,7 +36,7 @@ src/
 ├── main.py                 # orchestrator (--dry-run supported)
 ├── evaluate_outcomes.py    # standalone job: grades past recommendations vs realized prices
 ├── config.py               # env-var loader → Config dataclass
-├── db.py                   # PyMySQL connection + ticker/action/week-outcome/flip queries
+├── db.py                   # PyMySQL connection + ticker/action/week-outcome/flip/pattern-feature queries
 ├── collectors/
 │   ├── prices.py           # yfinance history + RSI/SMA/etc.; fetch_ticker_news + fetch_next_earnings + fetch_etf_info + fetch_fundamentals (all feed the per-ticker prompt)
 │   ├── reddit.py           # /r/stocks scraping (PRAW) + ticker extraction + trending detection
@@ -45,10 +46,11 @@ src/
 │   ├── actions.py          # per-phase allowed action sets + coerce_action backstop
 │   ├── macro.py            # thin wrapper around claude_client.analyze_macro
 │   ├── recommendation.py   # thin wrappers: analyze_ticker (ad-hoc) + analyze_tickers_batch (the run)
+│   ├── patterns.py         # session 22: buckets every graded outcome into hit-rate aggregates for the pattern-mining call
 │   ├── retrospective.py    # S5: aggregates the week's outcomes/flips/exposure for the retro call
 │   └── summary.py          # thin wrapper around claude_client.generate_daily_summary
 └── persistence/
-    └── writers.py          # writes to all 8 owned tables; 4h dedup window for recommendations
+    └── writers.py          # writes to all 9 owned tables; 4h dedup window for recommendations
 ```
 
 ## Execution flow ([main.py](src/main.py))
@@ -61,13 +63,14 @@ src/
 6. **Per-ticker, in three phases:**
    - **6a — collect:** technicals from yfinance (+ upsert today's price into `price_checks` before any Claude involvement), Reddit sentiment summary, news headlines (top 3), next earnings date, the ETF profile for tickers whose `quote_type` is ETF (family, expense ratio, top-5 holdings, sector mix via yfinance `funds_data` — stocks skip the fetch entirely), the fundamentals snapshot for tickers whose `quote_type` is EQUITY (trailing/forward P/E, dividend yield, margins, revenue/earnings growth, market cap via yfinance `Ticker.info` — ETFs/index/untyped skip it), and the ticker's standing call (`prev_action` + `prev_held_days`, from `get_latest_actions` — read before any of this run's rows land). Failures are isolated per ticker.
    - **6b — one Message Batches call** with all N per-ticker requests (50% token discount; polled up to 45 min, then canceled). Since session 16 each prompt shows "Recomendación vigente: X (mantenida N días)" and requires naming material new information to reverse it (flip-stability). Since session 18 ETF prompts carry a "Perfil del ETF" block (composition + costs) with an instruction to judge the fund by its exposure, not as a single stock.
-   - **6c — persist:** each parsed recommendation → `recommendations` (+ `reddit_mentions` for matched posts), linked to the most relevant macro signal for its sector (a POSITIVE/NEGATIVE direction beats a NEUTRAL mention). Unparseable/errored entries count as failures; nothing is persisted for them. Action flips vs each ticker's previous stored recommendation are collected here (S17).
+   - **6c — persist:** each parsed recommendation → `recommendations` (+ `reddit_mentions` for matched posts), linked to the most relevant macro signal for its sector (a POSITIVE/NEGATIVE direction beats a NEUTRAL mention) and carrying the ticker's `fundamentals` snapshot when one was fetched (session 22). Unparseable/errored entries count as failures; nothing is persisted for them. Action flips vs each ticker's previous stored recommendation are collected here (S17).
 7. Write Reddit mentions for posts with no matched ticker (NULL-ticker rows are deduped by a pre-SELECT, since the UNIQUE key can't compare NULLs).
 8. Detect trending unknown tickers (filter: score > 100, mentions > 3) and upsert them into `trending_tickers`.
 9. **Claude call #2** — daily summary → `daily_market_summary`; the prompt includes the run's action flips ("Cambios de recomendación vs la corrida anterior") so the summary calls them out, and carries only the first sentence of each recommendation's reasoning (the full text is stored per rec; 63 full reasonings dominated this call's input tokens). On failure the summary returns `None` and nothing is written (never an error placeholder).
 10. **Fridays only (or `--force-retro`): Claude call #3** — weekly retrospective → `weekly_retrospectives` (S5): reviews the calls whose 30d horizon matured that week, the week's flips, and sector exposure. Same failure rule: `None` is never persisted, and a retro failure can't kill the run.
+11. **Fridays only (or `--force-patterns`): Claude call #4** — pattern mining → `prediction_patterns` (session 22): every graded 30d outcome is bucketed in Python (action, confidence band, RSI band, price-vs-SMA50, 52w position, volume, ETF-vs-stock, sector, P/E band, dividend status + action×RSI and action×type crosses) and fed to Claude together with its own previous pattern set; it returns the refined set (NEW/CONFIRMED/REVISED/RETIRED with evidence + confidence) and a Spanish narrative. Append-only rows; same failure rule as the retro.
 
-Total Claude API interactions per run: 2 plain calls (macro, summary; +1 retro on Fridays) + 1 batch of N ticker requests. Usage and estimated cost (batch tokens at the 50% rate) are logged at run end.
+Total Claude API interactions per run: 2 plain calls (macro, summary; +2 on Fridays — retro and pattern mining) + 1 batch of N ticker requests. Usage and estimated cost (batch tokens at the 50% rate) are logged at run end.
 
 ## Infrastructure
 

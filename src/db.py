@@ -146,3 +146,54 @@ def get_week_flips(conn: pymysql.Connection, now: datetime) -> list[dict]:
             (now, now),
         )
         return cur.fetchall()
+
+
+def get_outcome_features(conn: pymysql.Connection, horizon: int = 30) -> list[dict]:
+    """Every graded outcome at `horizon` with the features known at call time.
+
+    Feeds the pattern miner (session 22): verdict + the call-time context —
+    action, confidence, technicals from the stored `technical` JSON, sector /
+    quote_type, and the fundamentals snapshot when one was stored (equities
+    from session 22 onward). Bucketing happens in Python
+    (src.analysis.patterns) so the SQL stays a plain join.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              o.verdict, o.action, o.confidence, o.forward_return,
+              t.symbol, t.sector, t.quote_type,
+              CAST(JSON_EXTRACT(r.technical, '$.rsi') AS DOUBLE)          AS rsi,
+              CAST(JSON_EXTRACT(r.technical, '$.price') AS DOUBLE)        AS price,
+              CAST(JSON_EXTRACT(r.technical, '$.sma20') AS DOUBLE)        AS sma20,
+              CAST(JSON_EXTRACT(r.technical, '$.sma50') AS DOUBLE)        AS sma50,
+              CAST(JSON_EXTRACT(r.technical, '$.pos_52w') AS DOUBLE)      AS pos_52w,
+              CAST(JSON_EXTRACT(r.technical, '$.volume_ratio') AS DOUBLE) AS volume_ratio,
+              CAST(JSON_EXTRACT(r.fundamentals, '$.trailing_pe') AS DOUBLE)        AS trailing_pe,
+              CAST(JSON_EXTRACT(r.fundamentals, '$.dividend_yield_pct') AS DOUBLE) AS dividend_yield_pct
+            FROM recommendation_outcomes o
+            JOIN recommendations r ON r.id = o.recommendation_id
+            JOIN tickers t ON t.id = o.ticker_id
+            WHERE o.horizon_days = %s
+            """,
+            (horizon,),
+        )
+        return cur.fetchall()
+
+
+def get_latest_patterns(conn: pymysql.Connection) -> dict | None:
+    """The newest prediction_patterns row (the current pattern set), or None.
+
+    Fed back into the next mining call so Claude refines its own previous
+    patterns instead of rediscovering them from scratch each week.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT generated_at, horizon_days, patterns, narrative
+            FROM prediction_patterns
+            ORDER BY generated_at DESC, id DESC
+            LIMIT 1
+            """
+        )
+        return cur.fetchone()

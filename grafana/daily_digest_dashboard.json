@@ -2276,6 +2276,267 @@
           }
         }
       }
+    },
+    "panel-15": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT\n  p.name AS `patrón`,\n  p.status,\n  ROUND(p.confidence*100, 0) AS `confianza %`,\n  p.description AS `descripción`,\n  p.evidence AS evidencia\nFROM prediction_patterns pp,\n  JSON_TABLE(pp.patterns, '$[*]' COLUMNS (\n    name        VARCHAR(120) PATH '$.name',\n    status      VARCHAR(10)  PATH '$.status',\n    confidence  DOUBLE       PATH '$.confidence',\n    description TEXT         PATH '$.description',\n    evidence    TEXT         PATH '$.evidence'\n  )) p\nWHERE pp.id = (SELECT MAX(id) FROM prediction_patterns)\nORDER BY FIELD(p.status, 'NEW', 'CONFIRMED', 'REVISED', 'RETIRED'), p.confidence DESC"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Session 22: el conjunto vigente de patrones que Claude mantiene sobre cuándo acierta o falla el sistema (hit rate a 30d). Cada viernes el minado recibe los agregados de todos los resultados graduados más sus propios patrones anteriores, y los confirma, revisa, retira o añade nuevos. NEW=nuevo, CONFIRMED=confirmado por evidencia nueva, REVISED=sigue con matices, RETIRED=ya no se sostiene. No respeta el time picker: siempre muestra el conjunto más reciente. Vacío hasta el primer viernes tras el merge de la sesión 22.",
+        "id": 15,
+        "links": [],
+        "title": "Patrones de acierto (minería semanal, 30d)",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "align": "left",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "filterable": false,
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "status"
+                  },
+                  "properties": [
+                    {
+                      "id": "mappings",
+                      "value": [
+                        {
+                          "type": "value",
+                          "options": {
+                            "NEW": {
+                              "color": "blue",
+                              "index": 0
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "CONFIRMED": {
+                              "color": "green",
+                              "index": 1
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "REVISED": {
+                              "color": "orange",
+                              "index": 2
+                            }
+                          }
+                        },
+                        {
+                          "type": "value",
+                          "options": {
+                            "RETIRED": {
+                              "color": "red",
+                              "index": 3
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "color-text"
+                      }
+                    },
+                    {
+                      "id": "custom.width",
+                      "value": 110
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "patrón"
+                  },
+                  "properties": [
+                    {
+                      "id": "custom.width",
+                      "value": 220
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "confianza %"
+                  },
+                  "properties": [
+                    {
+                      "id": "custom.width",
+                      "value": 110
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "footer": {
+                "countRows": false,
+                "fields": "",
+                "reducer": [
+                  "sum"
+                ],
+                "show": false
+              },
+              "showHeader": true
+            }
+          }
+        }
+      }
+    },
+    "panel-16": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT generated_at, narrative AS `análisis`\nFROM prediction_patterns\nORDER BY generated_at DESC, id DESC\nLIMIT 1"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Session 22: la narrativa del último minado de patrones — qué comparten las predicciones acertadas, qué cambió respecto a la semana anterior y qué implica para confiar más o menos en ciertas llamadas. La evolución completa queda en prediction_patterns (una fila por minado). Vacío hasta el primer viernes tras el merge de la sesión 22.",
+        "id": 16,
+        "links": [],
+        "title": "Patrones — narrativa del último minado",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "align": "left",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "filterable": false,
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "generated_at"
+                  },
+                  "properties": [
+                    {
+                      "id": "custom.width",
+                      "value": 170
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "footer": {
+                "countRows": false,
+                "fields": "",
+                "reducer": [
+                  "sum"
+                ],
+                "show": false
+              },
+              "showHeader": true
+            }
+          }
+        }
+      }
     }
   },
   "layout": {
@@ -2462,6 +2723,32 @@
             "width": 24,
             "x": 0,
             "y": 97
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-15"
+            },
+            "height": 10,
+            "width": 24,
+            "x": 0,
+            "y": 104
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-16"
+            },
+            "height": 8,
+            "width": 24,
+            "x": 0,
+            "y": 114
           }
         }
       ]

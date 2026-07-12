@@ -143,6 +143,7 @@ def write_recommendation(
     technical: dict,
     sentiment_summary: dict,
     macro_signal_id: int | None,
+    fundamentals: dict | None = None,
     dry_run: bool = False,
 ) -> None:
     """Inserts a recommendation row. Skips if one exists for this ticker within the dedup window."""
@@ -173,8 +174,8 @@ def write_recommendation(
             """
             INSERT INTO recommendations
               (ticker_id, generated_at, action, confidence, reasoning,
-               technical, sentiment, macro_signal_id, model_used)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+               technical, sentiment, fundamentals, macro_signal_id, model_used)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 ticker_id,
@@ -184,6 +185,9 @@ def write_recommendation(
                 recommendation.get("reasoning"),
                 json.dumps(technical),
                 json.dumps(sentiment_summary),
+                # The exact snapshot Claude saw (equities only) — NULL when the
+                # ticker has none, never an empty JSON placeholder.
+                json.dumps(fundamentals) if fundamentals else None,
                 macro_signal_id if macro_signal_id and macro_signal_id > 0 else None,
                 MODEL,
             ),
@@ -252,6 +256,45 @@ def write_weekly_retrospective(
             (week_start, _utcnow(), retro.get("retrospective"), json.dumps(stats)),
         )
     logger.info(f"Upserted weekly retrospective for week {week_start}")
+
+
+def write_prediction_patterns(
+    conn: pymysql.Connection,
+    result: dict,
+    stats: dict,
+    horizon: int = 30,
+    dry_run: bool = False,
+) -> None:
+    """Appends the mined pattern set (session 22; one row per mining run).
+
+    Append, not upsert: the evolution of the pattern set is part of the point —
+    the newest row is the current truth, older rows are the audit trail.
+    """
+    if dry_run:
+        logger.info(
+            f"[dry-run] Would insert prediction patterns "
+            f"({len(result.get('patterns', []))} patterns, horizon={horizon}d)"
+        )
+        return
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO prediction_patterns
+              (generated_at, horizon_days, patterns, narrative, stats)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (
+                _utcnow(),
+                horizon,
+                json.dumps(result.get("patterns", []), ensure_ascii=False),
+                result.get("narrative"),
+                json.dumps(stats),
+            ),
+        )
+    logger.info(
+        f"Inserted prediction patterns row ({len(result.get('patterns', []))} patterns)"
+    )
 
 
 def write_trending_tickers(

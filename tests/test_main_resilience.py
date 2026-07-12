@@ -54,7 +54,7 @@ def _run_main(monkeypatch, macro_raises: bool, summary_result):
     monkeypatch.setattr(main_mod, "write_macro_signals", lambda conn, s, dry_run=False: [])
     monkeypatch.setattr(
         main_mod, "write_recommendation",
-        lambda conn, tid, rec, tech, sent, macro_id, dry_run=False:
+        lambda conn, tid, rec, tech, sent, macro_id, fundamentals=None, dry_run=False:
             calls["recommendations"].append(rec["action"]),
     )
     monkeypatch.setattr(main_mod, "write_reddit_mentions", lambda *a, **kw: None)
