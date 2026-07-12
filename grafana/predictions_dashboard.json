@@ -61,7 +61,7 @@
             "transformations": []
           }
         },
-        "description": "The most recent recommendation for every active ticker (not scoped by the time picker). 'ticker hit rate %' is that ticker's own historical 30-day hit rate; 'graded calls' is its sample size. Click a symbol to open its deep-dive dashboard (requires replacing DEEP_DIVE_UID in the data link with your Grafana uid for the deep-dive dashboard — see the how-to-read panel).",
+        "description": "The most recent recommendation for every active ticker (not scoped by the time picker). 'ticker hit rate %' is that ticker's own historical 30-day hit rate; 'graded calls' is its sample size. Click a symbol to open its deep-dive dashboard (the data link is pre-wired to the deep-dive dashboard uid ma2wqvp; if your Grafana assigned a different uid, edit the link — see the how-to-read panel).",
         "id": 1,
         "links": [],
         "title": "Latest call per ticker",
@@ -218,7 +218,7 @@
                       "value": [
                         {
                           "title": "Open ticker deep dive",
-                          "url": "/d/DEEP_DIVE_UID/ticker-deep-dive?var-ticker=${__data.fields.symbol}",
+                          "url": "/d/ma2wqvp/ticker-deep-dive?var-ticker=${__data.fields.symbol}",
                           "targetBlank": false
                         }
                       ]
@@ -541,7 +541,7 @@
             },
             "options": {
               "mode": "markdown",
-              "content": "### How to read this dashboard\n\n**Latest call per ticker** is today's actionable view: what the model currently says about everything you hold or watch, strongest calls first (BUY/SELL before WATCH/HOLD).\n\n- **ticker hit rate %** — how often *this ticker's* past calls were right at 30 days: CORRECT ÷ (CORRECT + INCORRECT), neutral outcomes excluded. Trust high-confidence calls on high-hit-rate tickers more.\n- **graded calls** — the sample behind that hit rate; below ~10 it's noise.\n\n**Symbol click-through:** each symbol in the table links to the *Ticker deep dive* dashboard pre-filtered to that ticker. One-time setup: after importing, edit the link's URL and replace `DEEP_DIVE_UID` with the deep-dive dashboard's uid from your Grafana (the segment after `/d/` in its URL) — schema-v2 exports carry no uid, so it can't ship pre-wired.\n\n**Hit rate over time** shows whether accuracy is improving week over week (bars = how many graded calls each week; thin bars mean a noisy percentage). It follows the time picker; the table above always shows the latest run.\n\n**Horizon:** all hit rates are graded at the **30-day** horizon — these are long-term calls (≥1 month, up to a year), not weekly trades. 90d and 1y grading accumulates in the background.",
+              "content": "### How to read this dashboard\n\n**Latest call per ticker** is today's actionable view: what the model currently says about everything you hold or watch, strongest calls first (BUY/SELL before WATCH/HOLD).\n\n- **ticker hit rate %** — how often *this ticker's* past calls were right at 30 days: CORRECT ÷ (CORRECT + INCORRECT), neutral outcomes excluded. Trust high-confidence calls on high-hit-rate tickers more.\n- **graded calls** — the sample behind that hit rate; below ~10 it's noise.\n\n**Symbol click-through:** each symbol in the table links to the *Ticker deep dive* dashboard pre-filtered to that ticker. The link is pre-wired to the deep-dive dashboard's uid (`ma2wqvp`); if your Grafana assigned a different uid to the deep-dive (the segment after `/d/` in its URL), edit the link's URL to match.\n\n**Hit rate over time** shows whether accuracy is improving week over week (bars = how many graded calls each week; thin bars mean a noisy percentage). It follows the time picker; the table above always shows the latest run.\n\n**Horizon:** all hit rates are graded at the **30-day** horizon — these are long-term calls (≥1 month, up to a year), not weekly trades. 90d and 1y grading accumulates in the background.",
               "code": {
                 "language": "plaintext",
                 "showLineNumbers": false,
