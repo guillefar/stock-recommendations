@@ -307,7 +307,7 @@
             },
             "options": {
               "mode": "markdown",
-              "content": "### How to read this dashboard\n\n**Hit rate = CORRECT \u00f7 (CORRECT + INCORRECT)** \u2014 *neutral calls are excluded*, so a low hit rate and a low sample size often go together.\n\n- \ud83d\udfe2 **CORRECT** \u2014 the call's thesis played out within the horizon.\n- \u26aa **NEUTRAL** \u2014 the move was too small to judge (not counted in the hit rate).\n- \ud83d\udd34 **INCORRECT** \u2014 the price moved against the call.\n\n**Decisiveness** = share of graded calls that were *not* neutral. All tiles and tables use the **30-day** horizon (long-term orientation); 7d appears on the trend chart as a short-term timing diagnostic. 90d and 1y series fill in as outcomes mature (first 90d \u2248 Oct 2026, first 1y \u2248 May 2027). Grading bands widen with the horizon (e.g. a 1-year BUY must beat +15%, not +4%). In the sector table, **ETF** groups all exchange-traded funds (they have no sector of their own). Use the time picker (top-right) to scope a period.",
+              "content": "### How to read this dashboard\n\n**Hit rate = CORRECT \u00f7 (CORRECT + INCORRECT)** \u2014 *neutral calls are excluded*, so a low hit rate and a low sample size often go together.\n\n- \ud83d\udfe2 **CORRECT** \u2014 the call's thesis played out within the horizon.\n- \u26aa **NEUTRAL** \u2014 the move was too small to judge (not counted in the hit rate).\n- \ud83d\udd34 **INCORRECT** \u2014 the price moved against the call.\n\n**Decisiveness** = share of graded calls that were *not* neutral. All tiles and tables use the **30-day** horizon (long-term orientation); 7d appears on the trend chart as a short-term timing diagnostic. 90d, 6m (180d) and 1y series fill in as outcomes mature (first 90d \u2248 Aug 2026, first 6m \u2248 Nov 2026, first 1y \u2248 May 2027). Grading bands widen with the horizon (e.g. a 1-year BUY must beat +15%, not +4%). In the sector table, **ETF** groups all exchange-traded funds (they have no sector of their own). Use the time picker (top-right) to scope a period.",
               "code": {
                 "language": "plaintext",
                 "showLineNumbers": false,
@@ -340,7 +340,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT UNIX_TIMESTAMP(DATE(generated_at) - INTERVAL WEEKDAY(generated_at) DAY) AS time_sec, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=30)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=30),0),0) AS `30d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=7)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=7),0),0) AS `7d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=90)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=90),0),0) AS `90d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=365)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=365),0),0) AS `365d hit %`, SUM(horizon_days=30 AND verdict IN('CORRECT','INCORRECT')) AS `30d decided` FROM recommendation_outcomes WHERE $__timeFilter(generated_at) GROUP BY time_sec ORDER BY time_sec"
+                      "rawSql": "SELECT UNIX_TIMESTAMP(DATE(generated_at) - INTERVAL WEEKDAY(generated_at) DAY) AS time_sec, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=30)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=30),0),0) AS `30d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=7)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=7),0),0) AS `7d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=90)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=90),0),0) AS `90d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=180)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=180),0),0) AS `180d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=365)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=365),0),0) AS `365d hit %`, SUM(horizon_days=30 AND verdict IN('CORRECT','INCORRECT')) AS `30d decided` FROM recommendation_outcomes WHERE $__timeFilter(generated_at) GROUP BY time_sec ORDER BY time_sec"
                     },
                     "version": "v0"
                   },
@@ -352,7 +352,7 @@
             "transformations": []
           }
         },
-        "description": "Weekly hit rate by horizon (Monday-anchored weeks). 30d (green) is the headline; 7d is a short-term timing diagnostic. The light bars (right axis) show how many 30-day calls were decided that week \u2014 thin bars mean a noisy hit rate.",
+        "description": "Weekly hit rate by horizon (Monday-anchored weeks). 30d (green) is the headline; 7d is a short-term timing diagnostic; 90d (blue), 6m (orange) and 1y (purple) fill in as they mature. The light bars (right axis) show how many 30-day calls were decided that week \u2014 thin bars mean a noisy hit rate.",
         "id": 5,
         "links": [],
         "title": "Hit rate over time (weekly)",
@@ -444,6 +444,21 @@
                       "value": {
                         "mode": "fixed",
                         "fixedColor": "blue"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "180d hit %"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "orange"
                       }
                     }
                   ]

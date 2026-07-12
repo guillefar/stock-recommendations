@@ -308,7 +308,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT UNIX_TIMESTAMP(DATE(generated_at) - INTERVAL WEEKDAY(generated_at) DAY) AS time_sec, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=30)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=30),0),0) AS `30d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=7)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=7),0),0) AS `7d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=90)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=90),0),0) AS `90d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=365)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=365),0),0) AS `365d hit %`, SUM(horizon_days=30 AND verdict IN('CORRECT','INCORRECT')) AS `30d decided` FROM recommendation_outcomes WHERE $__timeFilter(generated_at) GROUP BY time_sec ORDER BY time_sec"
+                      "rawSql": "SELECT UNIX_TIMESTAMP(DATE(generated_at) - INTERVAL WEEKDAY(generated_at) DAY) AS time_sec, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=30)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=30),0),0) AS `30d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=7)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=7),0),0) AS `7d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=90)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=90),0),0) AS `90d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=180)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=180),0),0) AS `180d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=365)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=365),0),0) AS `365d hit %`, SUM(horizon_days=30 AND verdict IN('CORRECT','INCORRECT')) AS `30d decided` FROM recommendation_outcomes WHERE $__timeFilter(generated_at) GROUP BY time_sec ORDER BY time_sec"
                     },
                     "version": "v0"
                   },
@@ -320,7 +320,7 @@
             "transformations": []
           }
         },
-        "description": "Weekly hit rate by horizon (Monday-anchored weeks). 30d (green) is the headline; 7d is a short-term timing diagnostic. The light bars (right axis) show how many 30-day calls were decided that week — thin bars mean a noisy hit rate.",
+        "description": "Weekly hit rate by horizon (Monday-anchored weeks). 30d (green) is the headline; 7d is a short-term timing diagnostic; 90d (blue), 6m (orange) and 1y (purple) fill in as they mature. The light bars (right axis) show how many 30-day calls were decided that week — thin bars mean a noisy hit rate.",
         "id": 2,
         "links": [],
         "title": "Hit rate over time (weekly)",
@@ -412,6 +412,21 @@
                       "value": {
                         "mode": "fixed",
                         "fixedColor": "blue"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "180d hit %"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "orange"
                       }
                     }
                   ]

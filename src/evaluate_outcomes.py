@@ -40,13 +40,16 @@ class Bands:
     hold_loss: float   # HOLD is INCORRECT below −this (the holding deserved a SELL)
 
 
-# Per-horizon grading thresholds (decisions log, 2026-07-10 session 14).
+# Per-horizon grading thresholds (decisions log, 2026-07-10 session 14;
+# 180d added 2026-07-12 session 23, user-approved ±10/21/25 — √time from the
+# 90d bands, hold_loss trimmed to stay monotonic under 365d's 30%).
 # Bands widen roughly with √time so a verdict means the same thing at every
 # horizon: a 1-year BUY must beat +15%, not the +2% that suits a week.
 HORIZON_BANDS = {
     7: Bands(neutral=0.02, watch_move=0.05, hold_loss=0.10),
     30: Bands(neutral=0.04, watch_move=0.10, hold_loss=0.15),
     90: Bands(neutral=0.07, watch_move=0.15, hold_loss=0.20),
+    180: Bands(neutral=0.10, watch_move=0.21, hold_loss=0.25),
     365: Bands(neutral=0.15, watch_move=0.30, hold_loss=0.30),
 }
 

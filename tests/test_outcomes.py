@@ -41,11 +41,21 @@ def test_hold_rewards_flat_penalizes_deep_loss():
 
 
 def test_every_horizon_has_bands():
-    assert HORIZONS == (7, 30, 90, 365)
+    assert HORIZONS == (7, 30, 90, 180, 365)
     for h in HORIZONS:
         b = HORIZON_BANDS[h]
         assert 0 < b.neutral < b.watch_move
         assert b.neutral < b.hold_loss
+
+
+def test_bands_monotonic_across_horizons():
+    # Each threshold must widen (or hold) as the horizon grows, so a verdict
+    # never gets *easier* at a longer horizon (session 23: 180d slots in).
+    ordered = [HORIZON_BANDS[h] for h in HORIZONS]
+    for shorter, longer in zip(ordered, ordered[1:]):
+        assert shorter.neutral < longer.neutral
+        assert shorter.watch_move < longer.watch_move
+        assert shorter.hold_loss <= longer.hold_loss
 
 
 def test_bands_widen_with_horizon():
@@ -67,6 +77,22 @@ def test_watch_thresholds_scale():
     # Flat over a year = the watch wasted attention (band is ±15%).
     assert grade("WATCH", 0.10, 365) == "INCORRECT"
     assert grade("WATCH", 0.31, 365) == "CORRECT"
+
+
+def test_180d_bands():
+    # Session 23 (user-approved ±10/21/25): a 6-month BUY must beat +10%.
+    assert grade("BUY", 0.09, 180) == "NEUTRAL"
+    assert grade("BUY", 0.11, 180) == "CORRECT"
+    assert grade("BUY", -0.11, 180) == "INCORRECT"
+    # WATCH: it moved = |return| ≥ 21%; flat = inside ±10%.
+    assert grade("WATCH", 0.22, 180) == "CORRECT"
+    assert grade("WATCH", -0.22, 180) == "CORRECT"
+    assert grade("WATCH", 0.15, 180) == "NEUTRAL"
+    assert grade("WATCH", 0.05, 180) == "INCORRECT"
+    # HOLD: a 6-month slide past −25% deserved a SELL.
+    assert grade("HOLD", -0.26, 180) == "INCORRECT"
+    assert grade("HOLD", -0.20, 180) == "NEUTRAL"
+    assert grade("HOLD", 0.02, 180) == "CORRECT"
 
 
 def test_hold_loss_band_scales():

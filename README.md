@@ -77,7 +77,8 @@ Five dashboards live in [grafana/](grafana/), authored in **schema v2**
 - `ticker_deep_dive_dashboard.json` — **per-stock track record**: a multi-select
   **Ticker** variable scopes every panel — 30d hit-rate scorecard, price history
   (from `price_checks`), hit rate by horizon, weekly verdict bars, and the full
-  call history with each call's 30-day, 90-day and 1-year grades side by side.
+  call history with each call's 30-day, 90-day, 6-month and 1-year grades side
+  by side.
 
 To import: **Dashboards → New → Import**, paste the JSON, and select your MySQL
 datasource when prompted. Date navigation uses the **time-range picker** (the
