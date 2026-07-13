@@ -211,11 +211,18 @@ Para cada tema:
             }
         return themes
 
-    def _ticker_request_params(self, ticker_data: dict, macro_signals: list[dict]) -> dict:
+    def _ticker_request_params(
+        self,
+        ticker_data: dict,
+        macro_signals: list[dict],
+        patterns: list[dict] | None = None,
+    ) -> dict:
         """Builds the messages.create kwargs for one ticker recommendation.
 
         Shared between the single-call path (analyze_ticker) and the Batches
         path (analyze_tickers_batch) so both send byte-identical requests.
+        `patterns` is run-global (like macro_signals): the gated mined pattern
+        set injected into every ticker prompt; None/[] omits the block.
         """
         tech = ticker_data.get("technical", {})
         sent = ticker_data.get("sentiment", {})
@@ -268,6 +275,12 @@ Para cada tema:
         # exclusive with the ETF block by quote_type; omitted when unknown.
         fundamentals_block = _fundamentals_block(ticker_data.get("fundamentals"))
 
+        # Patterns→prompt feedback loop (session 25): the system's own mined
+        # patterns (already gated to CONFIRMED/REVISED at high confidence) ride
+        # into every ticker prompt as weighable historical biases. Empty until
+        # the miner confirms something, so prompts stay byte-identical then.
+        patterns_block = _patterns_block(patterns)
+
         # Flip-stability (session 16): the model sees its own standing call and
         # how long it's held, and must name material new information to flip it.
         # Omitted on a ticker's first-ever run (no previous action exists).
@@ -310,7 +323,7 @@ Horizonte de inversión: mínimo un mes, típicamente un año o más. Evalúa la
 de fondo a ese plazo; usa los indicadores de corto plazo (RSI, cambios 1d/7d) solo
 como timing de entrada/salida, nunca como razón principal. Un movimiento semanal
 no invalida una tesis de meses.
-{prev_block}
+{patterns_block}{prev_block}
 Reglas de decisión según la posición:
 - Si YA tienes posición (HOLDING): elige SELL cuando la tesis de largo plazo se
   deterioró (deterioro técnico sostenido, ruptura de SMAs/soportes relevantes, macro
@@ -372,16 +385,24 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
         result["action"] = coerce_action(result.get("action", ""), phase)
         return result
 
-    def analyze_ticker(self, ticker_data: dict, macro_signals: list[dict]) -> dict | None:
+    def analyze_ticker(
+        self,
+        ticker_data: dict,
+        macro_signals: list[dict],
+        patterns: list[dict] | None = None,
+    ) -> dict | None:
         """Single-ticker recommendation (ad-hoc/debug path; the run uses the batch)."""
         response = self._client.messages.create(
-            **self._ticker_request_params(ticker_data, macro_signals)
+            **self._ticker_request_params(ticker_data, macro_signals, patterns)
         )
         self._record_usage(response)
         return self._parse_ticker_response(response, ticker_data.get("phase") or "WATCHLIST")
 
     def analyze_tickers_batch(
-        self, ticker_items: list[dict], macro_signals: list[dict]
+        self,
+        ticker_items: list[dict],
+        macro_signals: list[dict],
+        patterns: list[dict] | None = None,
     ) -> dict[str, dict | None]:
         """Runs all per-ticker recommendations through the Message Batches API.
 
@@ -397,7 +418,7 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
             Request(
                 custom_id=f"t{i}",
                 params=MessageCreateParamsNonStreaming(
-                    **self._ticker_request_params(td, macro_signals)
+                    **self._ticker_request_params(td, macro_signals, patterns)
                 ),
             )
             for i, td in enumerate(ticker_items)
@@ -821,6 +842,28 @@ def _fundamentals_block(fund: dict | None) -> str:
         "\nFundamentales (valoración y rentabilidad del negocio — la tesis de "
         "largo plazo debe apoyarse en esto, no solo en el precio):\n"
         + "\n".join(lines) + "\n"
+    )
+
+
+def _patterns_block(patterns: list[dict] | None) -> str:
+    """Spanish prompt block with the system's own mined patterns; "" when empty.
+
+    Session 25 — the patterns→prompt feedback loop. `patterns` arrives already
+    gated (select_patterns_for_prompt: CONFIRMED/REVISED, confidence ≥ 0.7,
+    top 3), so this only renders. The wording frames them as observed historical
+    biases to weigh when applicable — never absolute rules — so the model can't
+    use a pattern to override contrary evidence in the ticker's own data.
+    """
+    if not patterns:
+        return ""
+    lines = "\n".join(f"- {p['name']}: {p['description']}" for p in patterns)
+    return (
+        "\nPatrones históricos del propio sistema (minados de sus aciertos y "
+        "errores pasados; solo patrones confirmados con alta confianza):\n"
+        f"{lines}\n"
+        "Pondera estos patrones únicamente si aplican a este ticker. Son sesgos "
+        "observados en el historial, no reglas absolutas: la evidencia actual "
+        "del ticker manda.\n"
     )
 
 

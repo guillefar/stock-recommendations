@@ -133,6 +133,7 @@ def test_main_fetches_etf_info_only_for_etfs(monkeypatch):
     monkeypatch.setattr(main_mod, "get_active_tickers", lambda conn: [etf, stock])
     monkeypatch.setattr(main_mod, "get_known_symbols", lambda conn: {"VWRL.AS", "AAPL"})
     monkeypatch.setattr(main_mod, "get_latest_actions", lambda conn: {})
+    monkeypatch.setattr(main_mod, "get_latest_patterns", lambda conn: None)
     monkeypatch.setattr(main_mod, "fetch_reddit_posts", lambda cfg: [])
     monkeypatch.setattr(main_mod, "fetch_macro_headlines", lambda: [])
     monkeypatch.setattr(main_mod, "fetch_prices_and_indicators", lambda s: {"price": 10.0})
@@ -142,7 +143,7 @@ def test_main_fetches_etf_info_only_for_etfs(monkeypatch):
     monkeypatch.setattr(main_mod, "fetch_fundamentals", lambda s: None)
     monkeypatch.setattr(main_mod, "run_macro_analysis", lambda client, headlines: [])
 
-    def fake_batch(client, items, signals):
+    def fake_batch(client, items, signals, patterns=None):
         batch_items.extend(items)
         return {
             t["symbol"]: {"action": "HOLD" if t["phase"] == "HOLDING" else "WATCH",

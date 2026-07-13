@@ -14,6 +14,7 @@ Everything produced is JSON-safe — the same dict is persisted as the
 `prediction_patterns.stats` column (audit trail of what the miner saw).
 """
 
+import json
 import logging
 
 from src.analysis.claude_client import ClaudeClient
@@ -23,6 +24,15 @@ logger = logging.getLogger(__name__)
 # Buckets thinner than this many decided calls are still reported (Claude is
 # told to distrust them) but a pattern can't rest on them alone.
 MIN_DECIDED_FOR_EVIDENCE = 20
+
+# Prompt-injection gate (session 25 — the patterns→prompt feedback loop).
+# Only patterns the miner has re-validated against new data (CONFIRMED) or
+# refined (REVISED) at high confidence reach the per-ticker prompts. NEW is
+# unproven and RETIRED is dead, so neither qualifies — which also means the
+# loop stays inert until the first Friday mining run confirms something.
+PROMPT_PATTERN_STATUSES = {"CONFIRMED", "REVISED"}
+PROMPT_PATTERN_MIN_CONFIDENCE = 0.7
+PROMPT_PATTERN_MAX = 3
 
 
 def _bucket_confidence(v) -> str:
@@ -178,3 +188,51 @@ def build_patterns_data(stats: dict, previous: dict | None) -> dict:
 def run_pattern_analysis(client: ClaudeClient, patterns_data: dict) -> dict | None:
     """Mines/refines the pattern set. None on failure — don't persist."""
     return client.generate_pattern_analysis(patterns_data)
+
+
+def select_patterns_for_prompt(latest: dict | None) -> list[dict]:
+    """Gates the newest stored pattern set for per-ticker prompt injection.
+
+    Takes the raw `get_latest_patterns` row (the `patterns` column arrives from
+    pymysql as a JSON string) and returns at most PROMPT_PATTERN_MAX patterns
+    whose status is in PROMPT_PATTERN_STATUSES and whose confidence is at least
+    PROMPT_PATTERN_MIN_CONFIDENCE, sorted by confidence descending.
+
+    Tolerant of anything malformed — no row, unparseable JSON, non-dict entries
+    or missing fields all just shrink the result (worst case []), because a bad
+    stored pattern must never cost a recommendation run.
+    """
+    if not latest:
+        return []
+    raw = latest.get("patterns")
+    if isinstance(raw, (str, bytes)):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            logger.warning("Stored patterns JSON is unparseable — no prompt injection")
+            return []
+    if not isinstance(raw, list):
+        return []
+
+    selected = []
+    for p in raw:
+        if not isinstance(p, dict):
+            continue
+        if p.get("status") not in PROMPT_PATTERN_STATUSES:
+            continue
+        try:
+            confidence = float(p.get("confidence"))
+        except (TypeError, ValueError):
+            continue
+        if confidence < PROMPT_PATTERN_MIN_CONFIDENCE:
+            continue
+        name = p.get("name")
+        description = p.get("description")
+        if not name or not description:
+            continue
+        selected.append(
+            {"name": name, "description": description, "confidence": confidence}
+        )
+
+    selected.sort(key=lambda p: p["confidence"], reverse=True)
+    return selected[:PROMPT_PATTERN_MAX]

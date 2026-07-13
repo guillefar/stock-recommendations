@@ -12,6 +12,7 @@ from src.analysis.macro import run_macro_analysis
 from src.analysis.patterns import (
     build_patterns_data,
     run_pattern_analysis,
+    select_patterns_for_prompt,
     summarize_features,
 )
 from src.analysis.recommendation import run_ticker_recommendations_batch
@@ -131,6 +132,29 @@ def main(dry_run: bool = False, force_retro: bool = False, force_patterns: bool 
         conn.ping(reconnect=True)
         previous_actions = get_latest_actions(conn)
 
+        # Patterns→prompt feedback loop (session 25): the newest mined pattern
+        # set — gated to CONFIRMED/REVISED at confidence ≥ 0.7, top 3 — rides
+        # into every ticker prompt. Fail-soft: any problem here just means the
+        # prompts carry no patterns block; it never costs the run.
+        prompt_patterns: list[dict] = []
+        try:
+            conn.ping(reconnect=True)
+            prompt_patterns = select_patterns_for_prompt(get_latest_patterns(conn))
+            if prompt_patterns:
+                logger.info(
+                    f"Injecting {len(prompt_patterns)} mined pattern(s) into ticker "
+                    "prompts: " + ", ".join(p["name"] for p in prompt_patterns)
+                )
+            else:
+                logger.info(
+                    "No confirmed high-confidence patterns to inject into ticker prompts"
+                )
+        except Exception:
+            logger.exception(
+                "Pattern injection read failed — ticker prompts carry no patterns block"
+            )
+            prompt_patterns = []
+
         # ── 6a. Per-ticker data collection ───────────────────────────────────
         # Failures are isolated per ticker: log, count, and move on, so one bad
         # ticker can't abort the unattended run. The price check is written here
@@ -208,7 +232,7 @@ def main(dry_run: bool = False, force_retro: bool = False, force_patterns: bool 
             logger.info(f"Requesting recommendations for {len(prepared)} tickers via batch...")
             try:
                 recommendations_by_symbol = run_ticker_recommendations_batch(
-                    claude, prepared, macro_signals
+                    claude, prepared, macro_signals, prompt_patterns
                 )
             except Exception:
                 logger.exception("Batch recommendation call failed — no recommendations this run")

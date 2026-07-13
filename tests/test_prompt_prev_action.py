@@ -96,6 +96,7 @@ def test_main_passes_prev_action_and_age_to_batch(monkeypatch):
         main_mod, "get_latest_actions",
         lambda conn: {1: {"action": "WATCH", "held_since": datetime(2026, 7, 1, 12, 19)}},
     )
+    monkeypatch.setattr(main_mod, "get_latest_patterns", lambda conn: None)
     monkeypatch.setattr(main_mod, "fetch_reddit_posts", lambda cfg: [])
     monkeypatch.setattr(main_mod, "fetch_macro_headlines", lambda: [])
     monkeypatch.setattr(main_mod, "fetch_prices_and_indicators", lambda s: {"price": 10.0})
@@ -103,7 +104,7 @@ def test_main_passes_prev_action_and_age_to_batch(monkeypatch):
     monkeypatch.setattr(main_mod, "fetch_next_earnings", lambda s: None)
     monkeypatch.setattr(main_mod, "run_macro_analysis", lambda client, headlines: [])
 
-    def fake_batch(client, items, signals):
+    def fake_batch(client, items, signals, patterns=None):
         batch_items.extend(items)
         return {
             t["symbol"]: {"action": "WATCH", "confidence": 0.5, "reasoning": "r"}

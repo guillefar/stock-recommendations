@@ -133,6 +133,7 @@ def _run_main(monkeypatch, dry_run=False, metrics_write_raises=False):
     monkeypatch.setattr(main_mod, "get_active_tickers", lambda conn: [TICKER])
     monkeypatch.setattr(main_mod, "get_known_symbols", lambda conn: {"AAPL"})
     monkeypatch.setattr(main_mod, "get_latest_actions", lambda conn: {})
+    monkeypatch.setattr(main_mod, "get_latest_patterns", lambda conn: None)
     monkeypatch.setattr(main_mod, "fetch_reddit_posts", lambda cfg: [])
     monkeypatch.setattr(main_mod, "fetch_macro_headlines", lambda: [])
     monkeypatch.setattr(main_mod, "fetch_prices_and_indicators", lambda s: {"price": 10.0})
@@ -141,7 +142,7 @@ def _run_main(monkeypatch, dry_run=False, metrics_write_raises=False):
     monkeypatch.setattr(main_mod, "run_macro_analysis", lambda client, headlines: [])
     monkeypatch.setattr(
         main_mod, "run_ticker_recommendations_batch",
-        lambda client, items, signals: {
+        lambda client, items, signals, patterns=None: {
             t["symbol"]: {"action": "WATCH", "confidence": 0.5, "reasoning": "r"}
             for t in items
         },

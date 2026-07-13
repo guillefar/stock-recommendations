@@ -129,6 +129,7 @@ def _run_main(monkeypatch, today, force_retro, retro_result=_RETRO_JSON):
     )
     monkeypatch.setattr(main_mod, "get_known_symbols", lambda conn: {"AAPL"})
     monkeypatch.setattr(main_mod, "get_latest_actions", lambda conn: {})
+    monkeypatch.setattr(main_mod, "get_latest_patterns", lambda conn: None)
     monkeypatch.setattr(main_mod, "get_week_outcomes", lambda conn, now, horizon=30: [])
     monkeypatch.setattr(main_mod, "get_week_flips", lambda conn, now: [])
     monkeypatch.setattr(main_mod, "fetch_reddit_posts", lambda cfg: [])
@@ -139,7 +140,7 @@ def _run_main(monkeypatch, today, force_retro, retro_result=_RETRO_JSON):
     monkeypatch.setattr(main_mod, "run_macro_analysis", lambda client, headlines: [])
     monkeypatch.setattr(
         main_mod, "run_ticker_recommendations_batch",
-        lambda client, items, signals: {
+        lambda client, items, signals, patterns=None: {
             t["symbol"]: {"action": "WATCH", "confidence": 0.5, "reasoning": "r"}
             for t in items
         },

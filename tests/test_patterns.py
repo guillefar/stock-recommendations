@@ -215,7 +215,7 @@ def _run_main(monkeypatch, today, force_patterns=False, feature_rows=None,
     monkeypatch.setattr(main_mod, "run_macro_analysis", lambda client, headlines: [])
     monkeypatch.setattr(
         main_mod, "run_ticker_recommendations_batch",
-        lambda client, items, signals: {
+        lambda client, items, signals, patterns=None: {
             t["symbol"]: {"action": "WATCH", "confidence": 0.5, "reasoning": "r"}
             for t in items
         },
