@@ -15,10 +15,19 @@ logger = logging.getLogger(__name__)
 MODEL = "claude-haiku-4-5-20251001"
 
 # The per-ticker calls go through the Message Batches API (50% discount).
-# A batch of ~63 tiny Haiku requests normally ends within a few minutes;
-# the deadline guards the cron job against a wedged batch (API max is 24h).
+# A batch of ~63 tiny Haiku requests used to end within a few minutes, but
+# observed latency has a long tail: production runs took 34-37 min on 2026-07-20
+# and 07-22, and the 07-17 and 07-27 runs hit the old 45-min deadline outright
+# and lost all 63 tickers. The deadline is 90 min (the workflow job allows 120)
+# — still a guard against a genuinely wedged batch (API max is 24h).
 BATCH_POLL_SECONDS = 30
-BATCH_DEADLINE_SECONDS = 45 * 60
+BATCH_DEADLINE_SECONDS = 90 * 60
+
+# After canceling a timed-out batch, results for requests that already finished
+# stay retrievable — but only once the batch reaches processing_status "ended".
+# Cancellation is not instant, so give it a bounded grace period to settle and
+# then harvest the partial set instead of throwing every ticker away.
+BATCH_CANCEL_GRACE_SECONDS = 5 * 60
 
 # Haiku 4.5 list pricing, USD per million tokens (see /claude-api → models table).
 # cache_control was removed in session 08 (min cacheable prefix is 4096 tokens),
@@ -398,6 +407,21 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
         self._record_usage(response)
         return self._parse_ticker_response(response, ticker_data.get("phase") or "WATCHLIST")
 
+    def _await_batch_end(self, batch_id: str):
+        """Polls a canceling batch until it reaches "ended". None if it never does.
+
+        Cancellation leaves already-completed requests intact, but the results
+        endpoint only serves them once processing_status is "ended" — so waiting
+        out the transition is what turns a timeout into a partial success.
+        """
+        grace = time.monotonic() + BATCH_CANCEL_GRACE_SECONDS
+        while time.monotonic() < grace:
+            batch = self._client.messages.batches.retrieve(batch_id)
+            if batch.processing_status == "ended":
+                return batch
+            time.sleep(BATCH_POLL_SECONDS)
+        return None
+
     def analyze_tickers_batch(
         self,
         ticker_items: list[dict],
@@ -408,8 +432,10 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
 
         Returns {symbol: recommendation-or-None}. Symbols can contain characters
         that custom_id forbids (e.g. "XESC.DE"), so requests are keyed "t<index>".
-        A wedged batch is canceled at BATCH_DEADLINE_SECONDS and every ticker
-        comes back None (the caller counts them as failures).
+        A batch still running at BATCH_DEADLINE_SECONDS is canceled, but its
+        already-completed requests are then harvested (see _await_batch_end), so
+        a slow batch costs the stragglers rather than the whole run. Only when
+        the canceled batch never settles does every ticker come back None.
         """
         if not ticker_items:
             return {}
@@ -434,10 +460,20 @@ una de: {", ".join(allowed)}. Responde SOLO con este JSON (sin texto adicional):
             if time.monotonic() > deadline:
                 logger.error(
                     f"Batch {batch.id} still {batch.processing_status} after "
-                    f"{BATCH_DEADLINE_SECONDS}s — canceling"
+                    f"{BATCH_DEADLINE_SECONDS}s — canceling and harvesting "
+                    "whatever finished"
                 )
                 self._client.messages.batches.cancel(batch.id)
-                return {td["symbol"]: None for td in ticker_items}
+                ended = self._await_batch_end(batch.id)
+                if ended is None:
+                    logger.error(
+                        f"Batch {batch.id} did not settle within "
+                        f"{BATCH_CANCEL_GRACE_SECONDS}s of cancellation — "
+                        "no results recoverable"
+                    )
+                    return {td["symbol"]: None for td in ticker_items}
+                batch = ended
+                break
             time.sleep(BATCH_POLL_SECONDS)
 
         counts = batch.request_counts

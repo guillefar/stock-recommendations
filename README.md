@@ -29,6 +29,7 @@ python -m src.main                      # real run (writes recommendations + pri
 python -m src.main --force-retro       # also generate the weekly retrospective off-Friday
 python -m src.main --force-patterns    # also run the prediction-pattern mining off-Friday
 python -m src.evaluate_outcomes --dry-run   # grade matured recommendations
+python -m src.evaluate_outcomes --regrade    # also re-grade already-graded rows (after a band change)
 python -m pytest tests/ -q             # unit tests (pure logic, no DB/API)
 ```
 

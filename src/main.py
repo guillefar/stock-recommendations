@@ -325,12 +325,26 @@ def main(dry_run: bool = False, force_retro: bool = False, force_patterns: bool 
         else:
             logger.error("No daily summary persisted for today")
 
+        # A run that persisted nothing has no week to review and no business
+        # re-mining patterns: on 2026-07-17 a timed-out batch left tickers_ok=0
+        # and steps 10/11 still spent two Claude calls, wrote a retrospective
+        # for a week it had no data on, and appended a pattern set. Both weekly
+        # steps now require at least one persisted recommendation. --force-retro
+        # / --force-patterns still override (ad-hoc backfills need them).
+        today = _today()
+        weekly_ok = bool(all_recommendations)
+        if not weekly_ok and today.weekday() == _RETRO_WEEKDAY:
+            logger.warning(
+                "No recommendations persisted this run — skipping the weekly "
+                "retrospective and pattern mining (use --force-retro / "
+                "--force-patterns to override)"
+            )
+
         # ── 10. Weekly retrospective (S5 — Fridays, 1 extra Claude call) ─────
         # Reviews the week for a long-term investor: which calls' 30d horizon
         # matured this week and how they graded, the week's flips, and current
         # sector exposure. A failure here must not kill the run.
-        today = _today()
-        if force_retro or today.weekday() == _RETRO_WEEKDAY:
+        if force_retro or (weekly_ok and today.weekday() == _RETRO_WEEKDAY):
             logger.info("Generating weekly retrospective...")
             week_start = today - timedelta(days=today.weekday())
             retro = None
@@ -356,7 +370,7 @@ def main(dry_run: bool = False, force_retro: bool = False, force_patterns: bool 
         # What do the accurate predictions share? Aggregates every graded 30d
         # outcome into per-bucket hit rates, feeds them + the previous pattern
         # set to Claude, and appends the refined set. Never kills the run.
-        if force_patterns or today.weekday() == _RETRO_WEEKDAY:
+        if force_patterns or (weekly_ok and today.weekday() == _RETRO_WEEKDAY):
             logger.info("Mining prediction patterns...")
             mined = None
             stats = None

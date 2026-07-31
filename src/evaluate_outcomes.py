@@ -57,25 +57,65 @@ HORIZON_BANDS = {
 # headline metric (long-term orientation); 7d stays as a timing diagnostic.
 HORIZONS = tuple(sorted(HORIZON_BANDS))
 
+# Per-asset-class band scaling (decisions log, 2026-07-30 session 26).
+#
+# HORIZON_BANDS above are *single-stock* volatility bands: the 30d watch_move of
+# 10% sits right on the measured median 30d move of a stock (10.7%). Diversified
+# ETFs are far less volatile — their median 30d move is 2.62% and only 13.6% of
+# them ever travel the 10% a WATCH needs to score CORRECT, while 64.5% sit
+# inside the 4% neutral band that scores a WATCH INCORRECT. Grading both classes
+# on stock bands therefore measured the instrument, not the call: it manufactured
+# a 15% WATCH×ETF "hit rate" (344 INCORRECT rows averaging a 1.66% move) and a
+# 94.5% HOLD×ETF one (HOLD is CORRECT when flat, and ETFs are flat).
+#
+# The scale is the measured ETF/stock mean-absolute-move ratio, which is stable
+# across horizons — 0.317 at 7d and 0.292 at 30d — so one factor serves every
+# horizon and preserves the √time shape and the monotonicity of the base bands.
+ASSET_CLASS_BAND_SCALE = {"ETF": 0.30}
+
+
+def bands_for(horizon: int, quote_type: str | None = None) -> Bands:
+    """Grading bands for a horizon, scaled to the instrument's asset class.
+
+    quote_type None/unknown (the index and the untyped tickers) keeps the
+    unscaled single-stock bands — the conservative default.
+    """
+    base = HORIZON_BANDS[horizon]
+    scale = ASSET_CLASS_BAND_SCALE.get((quote_type or "").upper())
+    if scale is None:
+        return base
+    return Bands(
+        neutral=round(base.neutral * scale, 6),
+        watch_move=round(base.watch_move * scale, 6),
+        hold_loss=round(base.hold_loss * scale, 6),
+    )
+
 # How long after a horizon we still accept a snapshot as the exit price. Guards
 # against matching a far-future snapshot when price data is sparse.
 EXIT_WINDOW_DAYS = 14
 
 
-def grade(action: str, forward_return: float, horizon: int = 7) -> str:
+def grade(
+    action: str,
+    forward_return: float,
+    horizon: int = 7,
+    quote_type: str | None = None,
+) -> str:
     """Verdict for a recommendation given its forward return at a horizon.
 
     Semantics (decisions log, 2026-06-12 session 06; per-horizon bands
-    2026-07-10 session 14):
+    2026-07-10 session 14; per-asset-class band scaling 2026-07-30 session 26):
     - BUY is bullish, SELL/AVOID bearish, with a ±neutral-band zone.
     - WATCH is direction-agnostic: CORRECT if |return| ≥ the watch-move
       threshold, INCORRECT if |return| < the neutral band (the watch wasted
       attention), else NEUTRAL.
     - HOLD: CORRECT if flat (|return| ≤ neutral band), INCORRECT below the
       hold-loss band, else NEUTRAL. Upside is never penalized.
+    - Bands are scaled per asset class (see ASSET_CLASS_BAND_SCALE) so a verdict
+      means the same thing on a 2.6%-a-month ETF as on a 10.7%-a-month stock.
     Returns 'CORRECT', 'INCORRECT', or 'NEUTRAL'.
     """
-    b = HORIZON_BANDS[horizon]
+    b = bands_for(horizon, quote_type)
     if action == "BUY":
         if forward_return > b.neutral:
             return "CORRECT"
@@ -104,23 +144,50 @@ def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _fetch_matured(conn, horizon: int, now: datetime) -> list[dict]:
+def _fetch_matured(
+    conn, horizon: int, now: datetime, regrade: bool = False
+) -> list[dict]:
     """Recommendations matured at this horizon and not yet graded for it.
 
     Each row carries two exit-price candidates: one from the sibling
     price_snapshots table and one from the in-repo price_checks table
     (daily granularity, so its window is computed on calendar dates).
     The caller prefers price_snapshots when both exist.
+
+    `quote_type` rides along so grading can scale the bands to the asset class.
+    With regrade=True the "not yet graded" filter is dropped, so already-graded
+    recommendations come back too and the writer's upsert refreshes their
+    verdicts in place (no delete, no id churn).
     """
+    not_graded = (
+        ""
+        if regrade
+        else """
+              AND NOT EXISTS (
+                SELECT 1 FROM recommendation_outcomes o
+                WHERE o.recommendation_id = r.id AND o.horizon_days = %s
+              )"""
+    )
+    params: list = [
+        horizon, horizon + EXIT_WINDOW_DAYS,
+        horizon, horizon + EXIT_WINDOW_DAYS,
+        horizon, horizon + EXIT_WINDOW_DAYS,
+        horizon, horizon + EXIT_WINDOW_DAYS,
+        horizon, now,
+    ]
+    if not regrade:
+        params.append(horizon)
+
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT
               r.id           AS recommendation_id,
               r.ticker_id,
               r.generated_at,
               r.action,
               r.confidence,
+              t.quote_type,
               CAST(JSON_EXTRACT(r.technical, '$.price') AS DECIMAL(18,6)) AS entry_price,
               (SELECT ps.price FROM price_snapshots ps
                  WHERE ps.ticker_id = r.ticker_id
@@ -143,19 +210,10 @@ def _fetch_matured(conn, horizon: int, now: datetime) -> list[dict]:
                    AND pc.as_of_date <  DATE(r.generated_at) + INTERVAL %s DAY
                  ORDER BY pc.as_of_date ASC LIMIT 1)      AS check_exit_as_of
             FROM recommendations r
-            WHERE r.generated_at + INTERVAL %s DAY <= %s
-              AND NOT EXISTS (
-                SELECT 1 FROM recommendation_outcomes o
-                WHERE o.recommendation_id = r.id AND o.horizon_days = %s
-              )
+            JOIN tickers t ON t.id = r.ticker_id
+            WHERE r.generated_at + INTERVAL %s DAY <= %s{not_graded}
             """,
-            (
-                horizon, horizon + EXIT_WINDOW_DAYS,
-                horizon, horizon + EXIT_WINDOW_DAYS,
-                horizon, horizon + EXIT_WINDOW_DAYS,
-                horizon, horizon + EXIT_WINDOW_DAYS,
-                horizon, now, horizon,
-            ),
+            tuple(params),
         )
         return cur.fetchall()
 
@@ -185,15 +243,17 @@ def _write_outcome(conn, row: dict, horizon: int, fwd: float, verdict: str, now:
         )
 
 
-def main(dry_run: bool = False) -> None:
-    logger.info(f"Evaluating recommendation outcomes (dry_run={dry_run})")
+def main(dry_run: bool = False, regrade: bool = False) -> None:
+    logger.info(
+        f"Evaluating recommendation outcomes (dry_run={dry_run}, regrade={regrade})"
+    )
     cfg = load_config()
     now = _now()
     conn = get_connection(cfg)
     try:
         total = 0
         for horizon in HORIZONS:
-            rows = _fetch_matured(conn, horizon, now)
+            rows = _fetch_matured(conn, horizon, now, regrade=regrade)
             graded = 0
             for row in rows:
                 if row["exit_price"] is None and row["check_exit_price"] is not None:
@@ -205,7 +265,7 @@ def main(dry_run: bool = False) -> None:
                 if entry is None or exit_ is None or entry == 0:
                     continue  # missing entry price or no matured price in either table
                 fwd = float(exit_) / float(entry) - 1.0
-                verdict = grade(row["action"], fwd, horizon)
+                verdict = grade(row["action"], fwd, horizon, row.get("quote_type"))
                 graded += 1
                 if dry_run:
                     logger.info(
@@ -224,5 +284,10 @@ def main(dry_run: bool = False) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Grade past recommendations against realized prices")
     parser.add_argument("--dry-run", action="store_true", help="Log only — don't write to DB")
+    parser.add_argument(
+        "--regrade",
+        action="store_true",
+        help="Also re-grade already-graded outcomes (upsert in place) — use after a band change",
+    )
     args = parser.parse_args()
-    main(dry_run=args.dry_run)
+    main(dry_run=args.dry_run, regrade=args.regrade)

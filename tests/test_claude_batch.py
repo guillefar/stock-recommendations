@@ -126,3 +126,107 @@ def test_empty_ticker_list_makes_no_api_call():
     fake = _patch(client, [])
     assert client.analyze_tickers_batch([], macro_signals=[]) == {}
     assert fake.created_requests is None
+
+
+# ── Session 26: timeout no longer discards a whole run ────────────────────────
+# 2 of 8 scheduled runs (2026-07-17, 07-27) hit the old 45-min deadline; the
+# client canceled and returned None for all 63 tickers, so a slow batch cost
+# the entire run. Cancellation preserves already-completed requests — they just
+# aren't retrievable until the batch reaches "ended".
+
+
+class _SlowBatches:
+    """A batch that never ends on its own; cancellation settles it after N polls."""
+
+    def __init__(self, entries, polls_before_settling=1, ever_settles=True):
+        self._entries = entries
+        self._polls_before_settling = polls_before_settling
+        self._ever_settles = ever_settles
+        self.canceled = False
+        self.polls_after_cancel = 0
+
+    def create(self, requests):
+        return SimpleNamespace(id="batch_slow", processing_status="in_progress")
+
+    def cancel(self, batch_id):
+        self.canceled = True
+
+    def retrieve(self, batch_id):
+        if not self.canceled:
+            return SimpleNamespace(id=batch_id, processing_status="in_progress")
+        self.polls_after_cancel += 1
+        settled = (
+            self._ever_settles
+            and self.polls_after_cancel >= self._polls_before_settling
+        )
+        return SimpleNamespace(
+            id=batch_id,
+            processing_status="ended" if settled else "canceling",
+            request_counts=SimpleNamespace(
+                succeeded=1, errored=0, canceled=1, expired=0
+            ),
+        )
+
+    def results(self, batch_id):
+        return iter(self._entries)
+
+
+def _force_timeout(monkeypatch):
+    """Makes the deadline expire immediately and sleeps free."""
+    monkeypatch.setattr("src.analysis.claude_client.BATCH_DEADLINE_SECONDS", -1)
+    monkeypatch.setattr("src.analysis.claude_client.BATCH_POLL_SECONDS", 0)
+    monkeypatch.setattr("src.analysis.claude_client.time.sleep", lambda _s: None)
+
+
+def test_timeout_harvests_completed_requests_instead_of_losing_them(monkeypatch):
+    _force_timeout(monkeypatch)
+    client = _client()
+    fake = _SlowBatches([
+        SimpleNamespace(
+            custom_id="t0",
+            result=SimpleNamespace(
+                type="succeeded",
+                message=_message({"action": "BUY", "confidence": 0.8, "reasoning": "ok"}),
+            ),
+        ),
+    ])
+    client._client = SimpleNamespace(messages=SimpleNamespace(batches=fake))
+
+    results = client.analyze_tickers_batch(TICKERS, macro_signals=[])
+
+    assert fake.canceled  # the wedged batch is still canceled
+    # ...but the request that finished before the cancel is recovered.
+    assert results["AAPL"]["action"] == "BUY"
+    assert results["XESC.DE"] is None  # genuine straggler
+
+
+def test_timeout_falls_back_to_all_none_if_cancel_never_settles(monkeypatch):
+    _force_timeout(monkeypatch)
+    monkeypatch.setattr("src.analysis.claude_client.BATCH_CANCEL_GRACE_SECONDS", -1)
+    client = _client()
+    fake = _SlowBatches([], ever_settles=False)
+    client._client = SimpleNamespace(messages=SimpleNamespace(batches=fake))
+
+    results = client.analyze_tickers_batch(TICKERS, macro_signals=[])
+
+    assert fake.canceled
+    assert results == {"AAPL": None, "XESC.DE": None}
+
+
+def test_batch_deadline_fits_inside_the_workflow_job_timeout():
+    # The workflow's timeout-minutes must exceed the batch budget or the job is
+    # killed mid-poll and nothing is persisted at all.
+    from pathlib import Path
+
+    from src.analysis.claude_client import (
+        BATCH_CANCEL_GRACE_SECONDS,
+        BATCH_DEADLINE_SECONDS,
+    )
+
+    wf = Path(__file__).resolve().parents[1] / ".github/workflows/run_recommendations.yml"
+    line = next(
+        l for l in wf.read_text().splitlines() if "timeout-minutes:" in l
+    )
+    job_minutes = int(line.split(":", 1)[1].strip())
+    budget_minutes = (BATCH_DEADLINE_SECONDS + BATCH_CANCEL_GRACE_SECONDS) / 60
+    assert job_minutes > budget_minutes + 10  # headroom for collection + weekly steps

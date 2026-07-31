@@ -21,9 +21,11 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    # Generous ceiling: the per-ticker Message Batch usually ends in minutes
-    # but src.main polls it up to 45 min before canceling.
-    timeout-minutes: 60
+    # Must stay above src.main's batch budget: BATCH_DEADLINE_SECONDS (90 min)
+    # plus BATCH_CANCEL_GRACE_SECONDS (5 min) plus ~10 min of collection,
+    # summary, weekly steps and setup. The old 60 min ceiling was already
+    # tighter than the batch tail (07-17 and 07-27 both burned 48 min).
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 

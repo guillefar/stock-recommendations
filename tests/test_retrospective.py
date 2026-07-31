@@ -5,6 +5,8 @@ from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 
+import pytest
+
 import src.main as main_mod
 from src.analysis.claude_client import ClaudeClient
 from src.analysis.retrospective import build_retro_data, sector_exposure, summarize_outcomes
@@ -104,7 +106,9 @@ def test_retro_prompt_empty_week_says_none():
     assert "(sin posiciones)" in prompt
 
 
-def _run_main(monkeypatch, today, force_retro, retro_result=_RETRO_JSON):
+def _run_main(
+    monkeypatch, today, force_retro, retro_result=_RETRO_JSON, batch_ok=True
+):
     written = []
     monkeypatch.setattr(main_mod, "load_config", lambda: SimpleNamespace())
     monkeypatch.setattr(
@@ -141,7 +145,10 @@ def _run_main(monkeypatch, today, force_retro, retro_result=_RETRO_JSON):
     monkeypatch.setattr(
         main_mod, "run_ticker_recommendations_batch",
         lambda client, items, signals, patterns=None: {
-            t["symbol"]: {"action": "WATCH", "confidence": 0.5, "reasoning": "r"}
+            t["symbol"]: (
+                {"action": "WATCH", "confidence": 0.5, "reasoning": "r"}
+                if batch_ok else None
+            )
             for t in items
         },
     )
@@ -162,7 +169,13 @@ def _run_main(monkeypatch, today, force_retro, retro_result=_RETRO_JSON):
             written.append((week_start, retro)),
     )
 
-    main_mod.main(dry_run=False, force_retro=force_retro)
+    if batch_ok:
+        main_mod.main(dry_run=False, force_retro=force_retro)
+    else:
+        # A run where every ticker failed still exits non-zero at the very end
+        # (unchanged behaviour) — the weekly steps run, or don't, before that.
+        with pytest.raises(SystemExit):
+            main_mod.main(dry_run=False, force_retro=force_retro)
     return written
 
 
@@ -182,3 +195,30 @@ def test_failed_retro_is_not_persisted(monkeypatch):
         monkeypatch, today=date(2026, 7, 10), force_retro=False, retro_result=None
     )
     assert written == []
+
+
+# ── Session 26: no weekly steps on a run that persisted nothing ───────────────
+# On 2026-07-17 a timed-out batch left tickers_ok=0, yet the Friday retro still
+# spent a Claude call and wrote a row describing a week it had no data for.
+
+
+def test_retro_skipped_when_no_recommendations_persisted(monkeypatch):
+    # Friday, but every ticker came back None → nothing to retrospect on.
+    assert _run_main(
+        monkeypatch, today=date(2026, 7, 17), force_retro=False, batch_ok=False
+    ) == []
+
+
+def test_force_retro_still_overrides_an_empty_run(monkeypatch):
+    # The escape hatch must keep working for ad-hoc backfills.
+    written = _run_main(
+        monkeypatch, today=date(2026, 7, 17), force_retro=True, batch_ok=False
+    )
+    assert written == [(date(2026, 7, 13), _RETRO_JSON)]
+
+
+def test_retro_still_written_on_a_healthy_friday(monkeypatch):
+    written = _run_main(
+        monkeypatch, today=date(2026, 7, 17), force_retro=False, batch_ok=True
+    )
+    assert written == [(date(2026, 7, 13), _RETRO_JSON)]

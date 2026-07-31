@@ -1,4 +1,12 @@
-from src.evaluate_outcomes import HORIZON_BANDS, HORIZONS, grade
+import pytest
+
+from src.evaluate_outcomes import (
+    ASSET_CLASS_BAND_SCALE,
+    HORIZON_BANDS,
+    HORIZONS,
+    bands_for,
+    grade,
+)
 
 
 def test_buy_rewards_upside():
@@ -102,3 +110,83 @@ def test_hold_loss_band_scales():
     assert grade("HOLD", -0.16, 30) == "INCORRECT"
     assert grade("HOLD", -0.25, 365) == "NEUTRAL"
     assert grade("HOLD", -0.31, 365) == "INCORRECT"
+
+
+# ── Session 26: per-asset-class band scaling ──────────────────────────────────
+# The base bands are single-stock volatility bands. ETFs move ~0.30x as far
+# (measured mean-absolute 30d move 4.29% vs 14.67%; 2.70% vs 8.52% at 7d), so
+# grading them on stock bands measured the instrument, not the call.
+
+
+def test_unknown_asset_class_keeps_base_bands():
+    # The index and the untyped tickers must grade exactly as before — this is
+    # what keeps every pre-session-26 expectation above valid.
+    for h in HORIZONS:
+        assert bands_for(h) == HORIZON_BANDS[h]
+        assert bands_for(h, None) == HORIZON_BANDS[h]
+        assert bands_for(h, "EQUITY") == HORIZON_BANDS[h]
+
+
+def test_etf_bands_are_scaled_and_case_insensitive():
+    b = bands_for(30, "ETF")
+    assert b.neutral == pytest.approx(0.012)
+    assert b.watch_move == pytest.approx(0.030)
+    assert b.hold_loss == pytest.approx(0.045)
+    assert bands_for(30, "etf") == b
+
+
+def test_etf_scaling_preserves_monotonicity_across_horizons():
+    # A uniform scale can't break the √time ordering, but assert it: a verdict
+    # must never get easier at a longer horizon for ETFs either.
+    ordered = [bands_for(h, "ETF") for h in HORIZONS]
+    for shorter, longer in zip(ordered, ordered[1:]):
+        assert shorter.neutral < longer.neutral
+        assert shorter.watch_move < longer.watch_move
+        assert shorter.hold_loss <= longer.hold_loss
+
+
+def test_etf_bands_stay_ordered_within_each_horizon():
+    for h in HORIZONS:
+        b = bands_for(h, "ETF")
+        assert 0 < b.neutral < b.watch_move
+        assert b.neutral < b.hold_loss
+
+
+def test_watch_on_etf_is_no_longer_structurally_doomed():
+    # The bug this fixes: a 2.6% monthly move is a *typical* ETF month, and the
+    # old bands scored it flatly INCORRECT (below the 4% neutral band) while
+    # demanding an all-but-unreachable 10% for a CORRECT. Under ETF bands the
+    # median ETF month lands mid-scale instead of auto-failing, and a decent
+    # 4% month is a genuine hit.
+    assert grade("WATCH", 0.026, 30) == "INCORRECT"          # old behaviour
+    assert grade("WATCH", 0.026, 30, "ETF") == "NEUTRAL"     # 1.2% <= 2.6% < 3.0%
+    assert grade("WATCH", 0.04, 30, "ETF") == "CORRECT"      # 4.0% >= 3.0%
+    assert grade("WATCH", 0.04, 30) == "NEUTRAL"             # old behaviour
+    # And a genuinely flat ETF month is still a wasted watch.
+    assert grade("WATCH", 0.005, 30, "ETF") == "INCORRECT"
+
+
+def test_hold_on_etf_is_no_longer_a_free_win():
+    # HOLD scored 94.5% on ETFs only because HOLD is CORRECT when flat and ETFs
+    # are flat. A 2% ETF month is now a move, not a hit.
+    assert grade("HOLD", 0.02, 30) == "CORRECT"              # old behaviour
+    assert grade("HOLD", 0.02, 30, "ETF") == "NEUTRAL"
+    assert grade("HOLD", 0.01, 30, "ETF") == "CORRECT"
+    # An ETF sliding 5% in a month is a real loss at ETF scale (band −4.5%).
+    assert grade("HOLD", -0.05, 30, "ETF") == "INCORRECT"
+    assert grade("HOLD", -0.05, 30) == "NEUTRAL"
+
+
+def test_directional_calls_scale_too():
+    # BUY/SELL/AVOID pivot on the neutral band, which also scales.
+    assert grade("BUY", 0.02, 30, "ETF") == "CORRECT"
+    assert grade("BUY", 0.02, 30) == "NEUTRAL"
+    assert grade("SELL", -0.02, 30, "ETF") == "CORRECT"
+    assert grade("AVOID", -0.02, 30) == "NEUTRAL"
+    assert grade("BUY", 0.005, 30, "ETF") == "NEUTRAL"
+
+
+def test_scale_factor_is_the_measured_ratio():
+    # Guard the constant: it is an empirical ETF/stock volatility ratio
+    # (0.317 at 7d, 0.292 at 30d), not a knob to nudge.
+    assert ASSET_CLASS_BAND_SCALE == {"ETF": 0.30}
