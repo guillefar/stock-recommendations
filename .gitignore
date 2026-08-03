@@ -7,3 +7,9 @@ dist/
 *.egg-info/
 .venv/
 venv/
+
+# Local-only tooling: per-session git worktrees live under .claude/worktrees,
+# and editor settings are personal. Committing the worktrees adds embedded
+# gitlinks that break clones (a stray `git add -A` did exactly that on 08-03).
+.claude/
+.vscode/
