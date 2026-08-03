@@ -19,12 +19,21 @@ Excess return removes the shared market move, leaving selection. Note it is
 direction-blind — a negative excess is skill for SELL/AVOID and failure for
 BUY/HOLD — and the mining prompt spells that out.
 
+Session 28 stops trusting the miner to *act* on that figure. Given the corrected
+statistics, it cited the excess in every pattern and went on ranking by hit
+rate, so `select_patterns_for_prompt` now enforces the threshold itself: a
+pattern reaches the ticker prompts only if the bucket it rests on diverged from
+its market cohort by at least ±1pp. Session 28 also corrected the cohort itself
+— two untyped ETFs had been benchmarked against equities (see src.quote_types),
+which alone manufactured the largest positive excess in the set.
+
 Everything produced is JSON-safe — the same dict is persisted as the
 `prediction_patterns.stats` column (audit trail of what the miner saw).
 """
 
 import json
 import logging
+import math
 
 from src.analysis.claude_client import ClaudeClient
 
@@ -42,6 +51,31 @@ MIN_DECIDED_FOR_EVIDENCE = 20
 PROMPT_PATTERN_STATUSES = {"CONFIRMED", "REVISED"}
 PROMPT_PATTERN_MIN_CONFIDENCE = 0.7
 PROMPT_PATTERN_MAX = 3
+
+# The mechanical excess gate (session 28).
+#
+# Session 27 gave the miner market-relative statistics and asked it, in its own
+# working language and immediately beside the data, not to call an action good
+# or bad when its excess is near zero. It cited the excess figure in 8 of 8
+# patterns and ranked by hit rate anyway: it praised RSI 70+ as reliable at a
+# 76% hit rate with an excess of -0.6pp, and called a +10.6pp bucket a
+# "colapso catastrófico" for its 0% hit rate. A request in the input is a
+# preference; a check on the output is a guarantee. So the threshold is applied
+# here, to what the miner returns, rather than asked for in the prompt.
+#
+# A bucket within ±1pp of its market cohort did what the market did — an extreme
+# hit rate on top of that measures the regime, not the system. 1pp is well below
+# the effects worth acting on (SELL -9.7pp, BUY -3.3pp, HOLD +1.2pp) and well
+# above the noise floor of the buckets that turned out to be artifacts.
+PROMPT_PATTERN_MIN_ABS_EXCESS = 1.0
+
+# WATCH is excluded outright, whatever its excess. Every other action asserts a
+# direction, so beating or trailing the cohort is evidence about the call.
+# WATCH asserts only that a ticker is worth attention, so its excess reports
+# which way the bucket happened to drift — bias, not skill. On the live corpus
+# WATCH × (otro) reads +10.6pp and would sail through a magnitude test; it is
+# the mis-cohorted-ETF artifact of session 28, not a finding.
+PROMPT_PATTERN_EXCLUDED_ACTIONS = {"WATCH"}
 
 
 def _bucket_confidence(v) -> str:
@@ -265,12 +299,28 @@ def select_patterns_for_prompt(latest: dict | None) -> list[dict]:
 
     Takes the raw `get_latest_patterns` row (the `patterns` column arrives from
     pymysql as a JSON string) and returns at most PROMPT_PATTERN_MAX patterns
-    whose status is in PROMPT_PATTERN_STATUSES and whose confidence is at least
-    PROMPT_PATTERN_MIN_CONFIDENCE, sorted by confidence descending.
+    that clear every gate, sorted by confidence descending:
+
+    - `status` in PROMPT_PATTERN_STATUSES — re-validated against new data.
+    - `confidence` at least PROMPT_PATTERN_MIN_CONFIDENCE.
+    - `primary_action` not in PROMPT_PATTERN_EXCLUDED_ACTIONS.
+    - `|excess_return_pp|` at least PROMPT_PATTERN_MIN_ABS_EXCESS — the pattern
+      rests on a bucket that actually diverged from its market cohort.
+
+    The filters run before the PROMPT_PATTERN_MAX cap, so the cap selects among
+    patterns that already qualify rather than reserving slots for ones that
+    don't: three eligible patterns are injected whether or not five were mined.
 
     Tolerant of anything malformed — no row, unparseable JSON, non-dict entries
     or missing fields all just shrink the result (worst case []), because a bad
-    stored pattern must never cost a recommendation run.
+    stored pattern must never cost a recommendation run. The excess and action
+    gates **fail closed**: a pattern missing either field is dropped rather than
+    waved through. Pattern sets mined before session 28 carry neither field, so
+    they stop being injected the moment this ships — which is the intent. Every
+    stored set predates both the session-26 re-grade and the session-28
+    quote_type fix, and injecting a known-contaminated set into 63 prompts is
+    the exact failure this gate exists to stop. Injection resumes on the first
+    Friday mining run after deploy.
     """
     if not latest:
         return []
@@ -295,6 +345,24 @@ def select_patterns_for_prompt(latest: dict | None) -> list[dict]:
         except (TypeError, ValueError):
             continue
         if confidence < PROMPT_PATTERN_MIN_CONFIDENCE:
+            continue
+        action = p.get("primary_action")
+        if not isinstance(action, str) or action.upper() in PROMPT_PATTERN_EXCLUDED_ACTIONS:
+            continue
+        try:
+            excess = float(p.get("excess_return_pp"))
+        except (TypeError, ValueError):
+            continue
+        # json.loads accepts the NaN/Infinity literals, and NaN fails every
+        # comparison — including the one below, which would let it through.
+        if not math.isfinite(excess):
+            continue
+        if abs(excess) < PROMPT_PATTERN_MIN_ABS_EXCESS:
+            logger.info(
+                "Pattern %r not injected: excess %+.1fpp is within ±%.1fpp of its "
+                "market cohort (hit rate alone is the regime, not skill)",
+                p.get("name"), excess, PROMPT_PATTERN_MIN_ABS_EXCESS,
+            )
             continue
         name = p.get("name")
         description = p.get("description")

@@ -746,6 +746,16 @@ Genera:
   no el promedio. Cuando cites un hit rate, cita también el exceso del mismo
   bucket, y NO afirmes que una acción es buena o mala en sí misma si su
   exceso es cercano a cero.
+  Además, cada patrón lleva dos campos que se leen de forma automática:
+  `excess_return_pp` es el exceso del bucket principal sobre el que se apoya
+  el patrón, copiado tal cual de los datos de arriba (un número en puntos
+  porcentuales, con signo: -9.7, +1.2). `primary_action` es la acción a la que
+  se refiere el patrón (BUY/SELL/HOLD/WATCH/AVOID), o NONE si el patrón no
+  trata de una acción concreta sino de una dimensión técnica. Estos dos campos
+  deciden por sí solos si el patrón se inyecta en los prompts de recomendación:
+  un patrón cuyo bucket tenga un exceso entre -1pp y +1pp describe el régimen
+  de mercado, no habilidad, y queda descartado automáticamente por muy alto que
+  sea su hit rate.
 - `narrative`: 2-4 párrafos en markdown (español) para un inversor de largo
   plazo: qué comparten las predicciones acertadas esta semana, qué cambió
   respecto a los patrones previos, y qué implican los patrones para confiar
@@ -790,6 +800,26 @@ Genera:
                                         # rejects minimum/maximum for numbers —
                                         # the 0..1 range lives in the prompt.
                                         "confidence": {"type": "number"},
+                                        # Session 28. Both fields exist so the
+                                        # injection gate can act on the pattern
+                                        # mechanically. Session 27 showed the
+                                        # miner will cite the excess figure in
+                                        # every pattern and still rank by hit
+                                        # rate, so asking it to weigh excess is
+                                        # not enough — the number has to arrive
+                                        # as data the gate can compare.
+                                        "excess_return_pp": {"type": "number"},
+                                        "primary_action": {
+                                            "type": "string",
+                                            "enum": [
+                                                "BUY",
+                                                "SELL",
+                                                "HOLD",
+                                                "WATCH",
+                                                "AVOID",
+                                                "NONE",
+                                            ],
+                                        },
                                     },
                                     "required": [
                                         "name",
@@ -797,6 +827,8 @@ Genera:
                                         "evidence",
                                         "status",
                                         "confidence",
+                                        "excess_return_pp",
+                                        "primary_action",
                                     ],
                                     "additionalProperties": False,
                                 },

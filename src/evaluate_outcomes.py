@@ -23,6 +23,7 @@ load_dotenv()
 
 from src.config import load_config
 from src.db import get_connection
+from src.quote_types import apply_quote_type_overrides
 
 logging.basicConfig(
     level=logging.INFO,
@@ -77,8 +78,12 @@ ASSET_CLASS_BAND_SCALE = {"ETF": 0.30}
 def bands_for(horizon: int, quote_type: str | None = None) -> Bands:
     """Grading bands for a horizon, scaled to the instrument's asset class.
 
-    quote_type None/unknown (the index and the untyped tickers) keeps the
-    unscaled single-stock bands — the conservative default.
+    quote_type None/unknown keeps the unscaled single-stock bands. Session 28
+    narrowed what reaches here as unknown: two of the three untyped tickers were
+    ETFs all along (see src.quote_types), and "conservative default" was the
+    wrong frame for them — stock bands on a 1.3%-a-month fund are not cautious,
+    they auto-pass its HOLDs and auto-fail its WATCHes. What remains unscaled is
+    ^STOXX50E, an index rather than a holdable instrument.
     """
     base = HORIZON_BANDS[horizon]
     scale = ASSET_CLASS_BAND_SCALE.get((quote_type or "").upper())
@@ -187,6 +192,7 @@ def _fetch_matured(
               r.generated_at,
               r.action,
               r.confidence,
+              t.symbol,
               t.quote_type,
               CAST(JSON_EXTRACT(r.technical, '$.price') AS DECIMAL(18,6)) AS entry_price,
               (SELECT ps.price FROM price_snapshots ps
@@ -215,7 +221,7 @@ def _fetch_matured(
             """,
             tuple(params),
         )
-        return cur.fetchall()
+        return apply_quote_type_overrides(cur.fetchall())
 
 
 def _write_outcome(conn, row: dict, horizon: int, fwd: float, verdict: str, now: datetime) -> None:

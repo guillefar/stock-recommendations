@@ -4,6 +4,7 @@ import pymysql
 import pymysql.cursors
 
 from src.config import Config
+from src.quote_types import apply_quote_type_overrides
 
 
 def get_connection(cfg: Config) -> pymysql.Connection:
@@ -24,6 +25,10 @@ def get_active_tickers(conn: pymysql.Connection) -> list[dict]:
 
     A ticker that is both held and watchlisted comes back once, as HOLDING
     (the watchlist arm excludes held tickers).
+
+    `quote_type` is corrected for the instruments the source table leaves NULL
+    (session 28, src.quote_types) so the ETF prompt block and the retrospective's
+    sector bucket see the true asset class.
     """
     with conn.cursor() as cur:
         cur.execute("""
@@ -41,7 +46,7 @@ def get_active_tickers(conn: pymysql.Connection) -> list[dict]:
             LEFT JOIN holdings h ON h.ticker_id = t.id AND h.quantity > 0
             WHERE h.ticker_id IS NULL
         """)
-        return cur.fetchall()
+        return apply_quote_type_overrides(cur.fetchall())
 
 
 def get_known_symbols(conn: pymysql.Connection) -> set[str]:
@@ -161,6 +166,10 @@ def get_outcome_features(conn: pymysql.Connection, horizon: int = 30) -> list[di
     call made the same day on the same asset class shared the same market, so
     the cohort's mean forward return is the benchmark a call's own return is
     measured against. Without it the miner reads a down market as skill.
+
+    `quote_type` carries the session-28 overrides, so the two untyped ETFs are
+    cohorted against ETFs instead of against equities — mis-cohorting them was
+    worth a spurious +10pp of "excess" in the mined stats.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -184,7 +193,7 @@ def get_outcome_features(conn: pymysql.Connection, horizon: int = 30) -> list[di
             """,
             (horizon,),
         )
-        return cur.fetchall()
+        return apply_quote_type_overrides(cur.fetchall())
 
 
 def get_latest_patterns(conn: pymysql.Connection) -> dict | None:
