@@ -33,13 +33,16 @@ _MINED_JSON = {
 
 def _row(verdict, action="BUY", confidence="0.60", rsi=45.0, price=10.0, sma50=9.0,
          pos_52w=0.5, volume_ratio=1.0, quote_type="EQUITY", sector="Tech",
-         trailing_pe=None, dividend_yield_pct=None):
+         trailing_pe=None, dividend_yield_pct=None,
+         forward_return="0.05", rec_date=date(2026, 6, 1)):
     return {
         "verdict": verdict, "action": action, "confidence": Decimal(confidence),
-        "forward_return": Decimal("0.05"), "symbol": "X", "sector": sector,
+        "forward_return": None if forward_return is None else Decimal(forward_return),
+        "symbol": "X", "sector": sector,
         "quote_type": quote_type, "rsi": rsi, "price": price, "sma50": sma50,
         "pos_52w": pos_52w, "volume_ratio": volume_ratio,
         "trailing_pe": trailing_pe, "dividend_yield_pct": dividend_yield_pct,
+        "rec_date": rec_date,
     }
 
 
@@ -76,11 +79,20 @@ def test_summarize_features_counts_and_hit_rates():
     s = summarize_features(rows, horizon=30)
     assert s["horizon_days"] == 30
     assert s["total_outcomes"] == 4
-    assert s["overall"] == {"correct": 2, "incorrect": 1, "neutral": 1, "hit_rate_pct": 67}
+    # excess_return_pp is 0.0 here by construction: one cohort, identical
+    # returns. Summed over every row it is always exactly 0 (deviations from a
+    # mean cancel) — that is the anchor the per-bucket figures deviate from.
+    assert s["overall"] == {
+        "correct": 2, "incorrect": 1, "neutral": 1,
+        "hit_rate_pct": 67, "excess_return_pp": 0.0,
+    }
     buy = s["dimensions"]["accion"]["BUY"]
     assert (buy["correct"], buy["incorrect"], buy["hit_rate_pct"]) == (2, 1, 67)
     oversold = s["dimensions"]["rsi"]["RSI<30 (sobrevendido)"]
-    assert oversold == {"correct": 2, "incorrect": 0, "neutral": 0, "hit_rate_pct": 100}
+    assert oversold == {
+        "correct": 2, "incorrect": 0, "neutral": 0,
+        "hit_rate_pct": 100, "excess_return_pp": 0.0,
+    }
     # cross carries the interaction
     assert "BUY × RSI<30 (sobrevendido)" in s["dimensions"]["accion_x_rsi"]
     json.dumps(s)  # JSON-safe for the stats column
@@ -104,6 +116,90 @@ def test_summarize_features_etf_bucket_and_missing_data():
 def test_summarize_features_neutral_only_bucket_has_no_hit_rate():
     s = summarize_features([_row("NEUTRAL")])
     assert s["overall"]["hit_rate_pct"] is None
+
+
+# ── Session 27: market-relative stats ─────────────────────────────────────────
+#
+# The audit's core finding: the whole graded corpus is a single −4.80% window,
+# so SELL read 100% and BUY read 2.6% on identical information and the miner
+# CONFIRMED both as skill. Excess return vs the same-day, same-asset-class
+# cohort is what separates the market's move from the system's selection.
+
+def test_uniform_market_move_shows_as_zero_excess_despite_extreme_hit_rate():
+    """A down market makes every SELL "correct" — with no skill behind it.
+
+    Regression for the exact artifact that drove session 26/27: eight calls,
+    all down 10%, so every SELL grades CORRECT and every BUY INCORRECT. Hit
+    rate says SELL 100% / BUY 0%; excess says both are 0.0pp, because nobody
+    beat anybody — the market moved and took every call with it.
+    """
+    rows = (
+        [_row("CORRECT", action="SELL", forward_return="-0.10") for _ in range(4)]
+        + [_row("INCORRECT", action="BUY", forward_return="-0.10") for _ in range(4)]
+    )
+    s = summarize_features(rows)
+    sell, buy = s["dimensions"]["accion"]["SELL"], s["dimensions"]["accion"]["BUY"]
+    assert (sell["hit_rate_pct"], buy["hit_rate_pct"]) == (100, 0)
+    assert sell["excess_return_pp"] == 0.0
+    assert buy["excess_return_pp"] == 0.0
+
+
+def test_real_selection_skill_survives_as_nonzero_excess():
+    """Same down market, but SELL picks the worst fallers — that IS skill."""
+    rows = [
+        _row("CORRECT", action="SELL", forward_return="-0.20"),
+        _row("CORRECT", action="SELL", forward_return="-0.20"),
+        _row("INCORRECT", action="BUY", forward_return="-0.05"),
+        _row("INCORRECT", action="BUY", forward_return="-0.05"),
+    ]
+    s = summarize_features(rows)
+    # Cohort mean is −12.5%; SELL sits 7.5pp below it, BUY 7.5pp above.
+    assert s["dimensions"]["accion"]["SELL"]["excess_return_pp"] == -7.5
+    assert s["dimensions"]["accion"]["BUY"]["excess_return_pp"] == 7.5
+
+
+def test_cohort_is_scoped_to_its_own_day():
+    """Two days with opposite markets must not contaminate each other."""
+    rows = [
+        # Day 1 crashed; both calls fell with it, neither beat the other.
+        _row("INCORRECT", action="BUY", forward_return="-0.10", rec_date=date(2026, 6, 1)),
+        _row("INCORRECT", action="BUY", forward_return="-0.10", rec_date=date(2026, 6, 1)),
+        # Day 2 rallied; likewise.
+        _row("CORRECT", action="BUY", forward_return="0.10", rec_date=date(2026, 6, 2)),
+        _row("CORRECT", action="BUY", forward_return="0.10", rec_date=date(2026, 6, 2)),
+    ]
+    s = summarize_features(rows)
+    assert s["cohort_count"] == 2
+    # A naive corpus-wide mean would score day 1 at −10pp and day 2 at +10pp.
+    assert s["dimensions"]["accion"]["BUY"]["excess_return_pp"] == 0.0
+
+
+def test_etfs_are_benchmarked_against_etfs_not_stocks():
+    """Session 26's lesson applied to the cohort: low beta is not low skill."""
+    rows = [
+        # Stocks swing wide around a −10% mean.
+        _row("CORRECT", action="HOLD", quote_type="EQUITY", forward_return="-0.20"),
+        _row("CORRECT", action="HOLD", quote_type="EQUITY", forward_return="0.00"),
+        # ETFs barely move; the ETF HOLD is exactly typical for an ETF.
+        _row("CORRECT", action="HOLD", quote_type="ETF", forward_return="-0.03"),
+        _row("CORRECT", action="HOLD", quote_type="ETF", forward_return="-0.03"),
+    ]
+    s = summarize_features(rows)
+    assert s["cohort_count"] == 2  # same day, split by asset class
+    # Against a stock-dominated cohort the ETFs would show a large positive
+    # excess purely for being ETFs. Against their own class they show none.
+    assert s["dimensions"]["tipo"]["ETF"]["excess_return_pp"] == 0.0
+
+
+def test_excess_is_none_when_no_return_is_usable():
+    s = summarize_features([_row("CORRECT", forward_return=None)])
+    assert s["overall"]["excess_return_pp"] is None
+    assert s["dimensions"]["accion"]["BUY"]["excess_return_pp"] is None
+
+
+def test_stats_with_excess_stay_json_safe_for_the_stats_column():
+    s = summarize_features([_row("CORRECT"), _row("INCORRECT", forward_return="-0.3")])
+    json.dumps(s)  # persisted verbatim as prediction_patterns.stats
 
 
 def test_build_patterns_data_with_and_without_previous():
@@ -160,6 +256,69 @@ def test_patterns_prompt_carries_aggregates_and_previous_set():
     schema = captured["output_config"]["format"]["schema"]
     statuses = schema["properties"]["patterns"]["items"]["properties"]["status"]["enum"]
     assert statuses == ["NEW", "CONFIRMED", "REVISED", "RETIRED"]
+
+
+def test_prompt_renders_excess_beside_every_hit_rate():
+    """Session 27: a hit rate must never reach the miner unaccompanied.
+
+    The artifact the loop injected for ten days was a bare hit rate. Pinning
+    the pairing means a bucket's headline number always arrives with the
+    regime-adjusted figure that qualifies it.
+    """
+    captured = {}
+    client = _stub_client(captured)
+    stats = summarize_features([
+        _row("CORRECT", action="SELL", forward_return="-0.20"),
+        _row("INCORRECT", action="BUY", forward_return="-0.05"),
+    ])
+    client.generate_pattern_analysis(build_patterns_data(stats, None))
+    prompt = captured["messages"][0]["content"]
+    # Cohort mean −12.5%: SELL 7.5pp below, BUY 7.5pp above.
+    assert "SELL: hit rate 100% (1C/0I/0N, 1 decididas), exceso -7.5pp vs mercado" in prompt
+    assert "BUY: hit rate 0% (0C/1I/0N, 1 decididas), exceso +7.5pp vs mercado" in prompt
+
+
+def test_prompt_tells_the_miner_to_base_patterns_on_excess():
+    """The rendering is inert unless the miner is told how to weigh it.
+
+    Test-pinned together with the _patterns_block regime caveat: this
+    instruction is what allows that caveat to be removed later.
+    """
+    captured = {}
+    client = _stub_client(captured)
+    client.generate_pattern_analysis(
+        build_patterns_data(summarize_features([_row("CORRECT")]), None)
+    )
+    prompt = captured["messages"][0]["content"]
+    assert "El hit rate es ABSOLUTO" in prompt
+    assert "RELATIVA AL\nMERCADO" in prompt
+    assert "mismo día, misma clase de activo" in prompt
+    # The failure mode being prevented, stated explicitly.
+    assert "NO es habilidad, es el régimen de mercado" in prompt
+    assert "cita también el exceso del mismo\n  bucket" in prompt
+
+
+def test_prompt_explains_that_excess_is_direction_blind():
+    """Excess has no inherent good/bad sign — and live data makes that bite.
+
+    On the real corpus SELL scores −9.7pp, which is skill (its calls fell
+    harder than their cohort, exactly as the call predicted) but reads as
+    failure to anything assuming "positive is good". Without this the fix
+    would hand the miner a fresh way to slander SELL — the same error in a
+    new coordinate system.
+    """
+    captured = {}
+    client = _stub_client(captured)
+    client.generate_pattern_analysis(
+        build_patterns_data(summarize_features([_row("CORRECT")]), None)
+    )
+    prompt = captured["messages"][0]["content"]
+    assert "El exceso NO tiene dirección propia" in prompt
+    assert "BUY y HOLD" in prompt and "POSITIVO = habilidad" in prompt
+    assert "SELL y AVOID" in prompt and "NEGATIVO = habilidad" in prompt
+    assert "no un fracaso" in prompt
+    # The 0.0pp anchor, so a bucket at ~0 is recognisable as "just the market".
+    assert "exceso global es 0.0pp" in prompt
 
 
 def test_patterns_prompt_first_run_says_no_previous():

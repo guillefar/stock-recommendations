@@ -156,12 +156,18 @@ def get_outcome_features(conn: pymysql.Connection, horizon: int = 30) -> list[di
     quote_type, and the fundamentals snapshot when one was stored (equities
     from session 22 onward). Bucketing happens in Python
     (src.analysis.patterns) so the SQL stays a plain join.
+
+    `rec_date` (session 27) is the cohort key for market-relative stats: every
+    call made the same day on the same asset class shared the same market, so
+    the cohort's mean forward return is the benchmark a call's own return is
+    measured against. Without it the miner reads a down market as skill.
     """
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT
               o.verdict, o.action, o.confidence, o.forward_return,
+              DATE(r.generated_at) AS rec_date,
               t.symbol, t.sector, t.quote_type,
               CAST(JSON_EXTRACT(r.technical, '$.rsi') AS DOUBLE)          AS rsi,
               CAST(JSON_EXTRACT(r.technical, '$.price') AS DOUBLE)        AS price,

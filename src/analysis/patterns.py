@@ -10,6 +10,15 @@ live (action × RSI, action × type). Claude also receives its own previous
 pattern set (the newest `prediction_patterns` row) so each week it refines,
 confirms, revises or retires patterns instead of rediscovering them.
 
+Session 27 adds `excess_return_pp` to every bucket — its mean return minus its
+market cohort's (same day, same asset class). A hit rate alone is an absolute
+measure, so over a single market regime it mostly measures the regime: the
+whole graded corpus came from a −4.80% window, which is why SELL read 100% and
+BUY read 2.6% on identical information and the miner CONFIRMED both as skill.
+Excess return removes the shared market move, leaving selection. Note it is
+direction-blind — a negative excess is skill for SELL/AVOID and failure for
+BUY/HOLD — and the mining prompt spells that out.
+
 Everything produced is JSON-safe — the same dict is persisted as the
 `prediction_patterns.stats` column (audit trail of what the miner saw).
 """
@@ -136,10 +145,51 @@ _DIMENSIONS = {
 
 
 def _tally(counts: dict) -> dict:
-    """Adds hit_rate_pct to a {correct, incorrect, neutral} count dict."""
+    """Adds hit_rate_pct and excess_return_pp to a bucket's running counts.
+
+    `excess_return_pp` is the bucket's mean excess return in percentage points
+    versus its market cohort (see `_cohort_key`) — the market-relative figure.
+    None when no row in the bucket had a usable return.
+    """
     decided = counts["correct"] + counts["incorrect"]
     counts["hit_rate_pct"] = round(100 * counts["correct"] / decided) if decided else None
+    n = counts.pop("_excess_n", 0)
+    total = counts.pop("_excess_sum", 0.0)
+    counts["excess_return_pp"] = round(100 * total / n, 1) if n else None
     return counts
+
+
+def _cohort_key(row: dict) -> tuple:
+    """The market cohort a call is judged against: same day, same asset class.
+
+    Session 27. Every graded 30d outcome in the corpus came from a single
+    −4.80% window, which alone made SELL read 100% and BUY read 2.6% — the
+    miner then CONFIRMED both as skill. Subtracting the cohort's mean forward
+    return strips the shared market move out, so what's left is selection.
+
+    Asset class is part of the key because session 26 established ETFs and
+    stocks are not comparable instruments (an ETF's median 30d move is 2.62%
+    against a stock's 10.70%). Judging an ETF call against a stock-dominated
+    cohort would read its low beta as an absence of skill.
+    """
+    return (row.get("rec_date"), "ETF" if row.get("quote_type") == "ETF" else "NO-ETF")
+
+
+def _cohort_means(rows: list[dict]) -> dict:
+    """Mean forward return per cohort — the benchmark each call is measured on.
+
+    Every call counts toward its cohort's mean, NEUTRAL included: the cohort is
+    meant to represent the market that day, not the decided calls only.
+    """
+    sums: dict[tuple, list] = {}
+    for row in rows:
+        ret = row.get("forward_return")
+        if ret is None:
+            continue
+        acc = sums.setdefault(_cohort_key(row), [0.0, 0])
+        acc[0] += float(ret)
+        acc[1] += 1
+    return {key: total / n for key, (total, n) in sums.items() if n}
 
 
 def summarize_features(rows: list[dict], horizon: int = 30) -> dict:
@@ -148,19 +198,38 @@ def summarize_features(rows: list[dict], horizon: int = 30) -> dict:
     Hit rate = CORRECT / (CORRECT + INCORRECT), NEUTRAL excluded — the same
     definition as every dashboard panel. Buckets whose feature is unknown land
     in "(sin dato)" so the totals stay honest.
+
+    Each bucket also carries `excess_return_pp` (session 27): its mean return
+    minus its market cohort's, in percentage points. Hit rate answers "how
+    often was this call right", which in a one-directional market mostly
+    measures the market; excess return answers "did this call beat the calls
+    that shared its market", which is the part attributable to the system.
     """
-    overall = {"correct": 0, "incorrect": 0, "neutral": 0}
+    overall = {"correct": 0, "incorrect": 0, "neutral": 0,
+               "_excess_sum": 0.0, "_excess_n": 0}
     dimensions: dict[str, dict[str, dict]] = {name: {} for name in _DIMENSIONS}
+    cohorts = _cohort_means(rows)
 
     for row in rows:
         verdict = row["verdict"].lower()
         overall[verdict] += 1
+        ret = row.get("forward_return")
+        cohort_mean = cohorts.get(_cohort_key(row))
+        excess = None if ret is None or cohort_mean is None else float(ret) - cohort_mean
+        if excess is not None:
+            overall["_excess_sum"] += excess
+            overall["_excess_n"] += 1
         for name, bucket_fn in _DIMENSIONS.items():
             bucket = bucket_fn(row)
             b = dimensions[name].setdefault(
-                bucket, {"correct": 0, "incorrect": 0, "neutral": 0}
+                bucket,
+                {"correct": 0, "incorrect": 0, "neutral": 0,
+                 "_excess_sum": 0.0, "_excess_n": 0},
             )
             b[verdict] += 1
+            if excess is not None:
+                b["_excess_sum"] += excess
+                b["_excess_n"] += 1
 
     for buckets in dimensions.values():
         for counts in buckets.values():
@@ -169,6 +238,7 @@ def summarize_features(rows: list[dict], horizon: int = 30) -> dict:
     return {
         "horizon_days": horizon,
         "total_outcomes": len(rows),
+        "cohort_count": len(cohorts),
         "overall": _tally(overall),
         "dimensions": dimensions,
     }

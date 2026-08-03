@@ -678,6 +678,14 @@ para las posiciones a 1+ mes vista. Sé honesto con los fallos."""
                 )
                 + f"({c['correct']}C/{c['incorrect']}I/{c['neutral']}N, "
                 f"{c['correct'] + c['incorrect']} decididas)"
+                # Session 27: the market-relative figure sits next to the raw
+                # hit rate so a bucket's headline number can never be read
+                # without its regime-adjusted counterpart.
+                + (
+                    f", exceso {c['excess_return_pp']:+.1f}pp vs mercado"
+                    if c.get("excess_return_pp") is not None
+                    else ""
+                )
                 for label, c in items
             ) or "  (sin datos)"
 
@@ -697,6 +705,27 @@ para las posiciones a 1+ mes vista. Sé honesto con los fallos."""
 Hit rate = CORRECT / (CORRECT + INCORRECT); las NEUTRAL no cuentan.
 Global: {overall.get('correct', 0)}C/{overall.get('incorrect', 0)}I/{overall.get('neutral', 0)}N — hit rate {overall.get('hit_rate_pct')}% sobre {stats.get('total_outcomes', 0)} resultados.
 
+IMPORTANTE — cómo leer estas cifras. El hit rate es ABSOLUTO: mide si el
+precio se movió como decía la llamada, así que en un mercado bajista SELL
+acierta mucho y BUY falla mucho por pura dirección del mercado, sin que eso
+diga nada del criterio del sistema. El `exceso` es la cifra RELATIVA AL
+MERCADO: el retorno medio del bucket menos el de su cohorte (mismas llamadas,
+mismo día, misma clase de activo), en puntos porcentuales. Por construcción el
+exceso global es 0.0pp: es el punto de referencia del que se desvían los
+buckets.
+
+El exceso NO tiene dirección propia — hay que leerlo según lo que afirmaba la
+llamada:
+- BUY y HOLD aciertan cuando el activo SUBE más que su cohorte: exceso
+  POSITIVO = habilidad.
+- SELL y AVOID aciertan cuando el activo CAE más que su cohorte: exceso
+  NEGATIVO = habilidad. Un SELL con exceso -10pp es una selección excelente,
+  no un fracaso.
+- WATCH no afirma dirección, así que su exceso solo informa de sesgo.
+
+Basa los patrones en el exceso y usa el hit rate como contexto: un hit rate
+extremo con exceso ~0 NO es habilidad, es el régimen de mercado.
+
 Hit rate por dimensión y bucket (C=correctas, I=incorrectas, N=neutrales):
 {dims_text}
 
@@ -714,7 +743,9 @@ Genera:
   arriba. `confidence` es un número entre 0 y 1; desconfía de buckets con
   menos de ~20 llamadas decididas — refléjalo en una confidence baja.
   Compara siempre contra el hit rate global: un patrón es una desviación,
-  no el promedio.
+  no el promedio. Cuando cites un hit rate, cita también el exceso del mismo
+  bucket, y NO afirmes que una acción es buena o mala en sí misma si su
+  exceso es cercano a cero.
 - `narrative`: 2-4 párrafos en markdown (español) para un inversor de largo
   plazo: qué comparten las predicciones acertadas esta semana, qué cambió
   respecto a los patrones previos, y qué implican los patrones para confiar
