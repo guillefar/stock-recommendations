@@ -264,3 +264,41 @@ def test_failed_mining_is_not_persisted(monkeypatch):
 def test_no_graded_outcomes_skips_mining(monkeypatch):
     written = _run_main(monkeypatch, today=date(2026, 7, 17), feature_rows=[])
     assert written == []
+
+
+# ── Session 26 follow-up: the mining call must not truncate ───────────────────
+
+
+def test_mining_call_has_headroom_above_observed_output_size():
+    # Production regression (2026-07-31): the mining call ran at ~2,900-3,000
+    # output tokens against a 3,072 ceiling, tipped over, and stop_reason=
+    # max_tokens made _parse_structured return None — silently discarding the
+    # whole weekly mining and leaving production injecting a stale pattern set.
+    # max_tokens is a ceiling, not a charge, so keep generous headroom.
+    captured = {}
+    client = _stub_client(captured)
+    client.generate_pattern_analysis(
+        build_patterns_data(summarize_features([]), None)
+    )
+    assert captured["max_tokens"] >= 6144
+
+
+def test_truncated_mining_response_returns_none_rather_than_partial_json():
+    # The failure must stay fail-soft: a truncated set is never persisted.
+    client = ClaudeClient.__new__(ClaudeClient)
+    client._usage = {
+        "calls": 0, "input": 0, "output": 0,
+        "batch_input": 0, "batch_output": 0,
+        "cache_write": 0, "cache_read": 0,
+    }
+    client._client = SimpleNamespace(
+        messages=SimpleNamespace(
+            create=lambda **kw: SimpleNamespace(
+                stop_reason="max_tokens",
+                content=[SimpleNamespace(type="text", text='{"patterns": [{"na')],
+            )
+        )
+    )
+    assert client.generate_pattern_analysis(
+        build_patterns_data(summarize_features([]), None)
+    ) is None

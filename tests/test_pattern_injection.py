@@ -131,6 +131,19 @@ def test_block_renders_name_description_and_framing():
     assert "no reglas absolutas" in block
 
 
+def test_block_carries_the_market_regime_caveat():
+    # Session 26: the mined hit rates are NOT market-adjusted, so per-action
+    # base rates are mechanically biased by market direction — the whole graded
+    # corpus is a -4.80% window, which is why SELL reads ~100% and BUY ~6%.
+    # Without this caveat the loop injects "never BUY / always SELL" as if it
+    # were skill. Remove it only once summarize_features reports market-relative
+    # figures (the pinned next slice).
+    block = _patterns_block([CONFIRMED])
+    assert "no están ajustados" in block.replace("NO están", "no están")
+    assert "mayoritariamente bajista" in block
+    assert "SELL y AVOID" in block and "BUY falla" in block
+
+
 # ── _ticker_request_params (prompt inclusion / byte-identical omission) ──────
 
 def test_prompt_carries_patterns_block():

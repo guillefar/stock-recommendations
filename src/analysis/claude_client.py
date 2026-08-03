@@ -722,7 +722,14 @@ Genera:
 
         response = self._client.messages.create(
             model=MODEL,
-            max_tokens=3072,
+            # The mining call is the largest generation in the run: 8 patterns
+            # with evidence strings plus a 2-4 paragraph Spanish narrative had
+            # been consuming ~2,900-3,000 of the previous 3,072 ceiling every
+            # week. On 2026-07-31 it tipped over — stop_reason=max_tokens, the
+            # structured parse returned None, and the whole weekly mining was
+            # discarded (leaving production injecting a stale set). max_tokens
+            # is a ceiling, not a charge, so the headroom is free.
+            max_tokens=8192,
             system=_PATTERNS_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
             output_config={
@@ -900,6 +907,14 @@ def _patterns_block(patterns: list[dict] | None) -> str:
         "Pondera estos patrones únicamente si aplican a este ticker. Son sesgos "
         "observados en el historial, no reglas absolutas: la evidencia actual "
         "del ticker manda.\n"
+        "Advertencia importante: estos hit rates se midieron sobre un periodo "
+        "de mercado concreto y mayoritariamente bajista, y NO están ajustados "
+        "por la dirección del mercado. Por eso las tasas por acción están "
+        "sesgadas de forma mecánica: en un mercado que cae, SELL y AVOID "
+        "aciertan casi siempre y BUY falla casi siempre, sin que eso mida el "
+        "criterio del sistema. No deduzcas de estos patrones que una acción "
+        "concreta (BUY, SELL, WATCH...) sea buena o mala en sí misma; úsalos "
+        "solo para matizar el peso de señales técnicas o de tipo de activo.\n"
     )
 
 
