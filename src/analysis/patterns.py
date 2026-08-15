@@ -27,6 +27,15 @@ its market cohort by at least ±1pp. Session 28 also corrected the cohort itself
 — two untyped ETFs had been benchmarked against equities (see src.quote_types),
 which alone manufactured the largest positive excess in the set.
 
+Session 29 measured what the loop actually does to production and switched it
+off. Across four consecutive runs injecting the *corrected* pattern sets, the
+system stopped making actionable calls — BUY+SELL fell to 1–3 of 63 against a
+7–17 historical range — while the market it was declining to buy rose 5.7%
+(median) over the same fortnight. The next run with no block at all recovered to
+9. Injection is now opt-in via PATTERN_INJECTION_ENABLED; mining still runs and
+still persists, so the data keeps accumulating for the analysis that has to
+happen before it goes back on.
+
 Everything produced is JSON-safe — the same dict is persisted as the
 `prediction_patterns.stats` column (audit trail of what the miner saw).
 """
@@ -34,6 +43,7 @@ Everything produced is JSON-safe — the same dict is persisted as the
 import json
 import logging
 import math
+import os
 
 from src.analysis.claude_client import ClaudeClient
 
@@ -76,6 +86,63 @@ PROMPT_PATTERN_MIN_ABS_EXCESS = 1.0
 # WATCH × (otro) reads +10.6pp and would sail through a magnitude test; it is
 # the mis-cohorted-ETF artifact of session 28, not a finding.
 PROMPT_PATTERN_EXCLUDED_ACTIONS = {"WATCH"}
+
+# The injection kill switch (session 29) — off unless explicitly enabled.
+#
+# Sessions 26–28 each fixed a real defect in what the loop was learning from,
+# and each time the loop found a new way to hurt the product. Session 29 finally
+# measured the output rather than the mechanism, over four production runs that
+# injected the corrected sets (2026-08-05, 08-07, 08-10, 08-12):
+#
+#     date        BUY  SELL  decisive        injected set
+#     2026-07-31    7     3        10        id=3 (artifact set)
+#     2026-08-03    6     1         7        id=3
+#     2026-08-05    1     0         1        id=5 (corrected)
+#     2026-08-07    2     1         3        id=5
+#     2026-08-10    2     0         2        id=6 (corrected)
+#     2026-08-12    2     0         2        id=6
+#     2026-08-14    6     3         9        NONE — session 28 merged, gate
+#                                            failed closed on the fieldless id=6
+#
+# Historical decisive range: 7–17. Over the collapsed fortnight the median active
+# ticker rose 5.69% and 67% of them rose more than 4% — so the system withdrew
+# from the market at precisely the wrong moment, because every prompt carried
+# "BUY es sistemáticamente fallido: 6% hit rate", a statistic computed entirely
+# inside the dead −4.80% May–June window. The calls didn't flip from BUY to
+# SELL; both directional buckets drained into WATCH (22 → 28–30). The model was
+# not persuaded of a bearish thesis, it was persuaded not to commit.
+#
+# The last row is the control, and it arrived unplanned: merging session 28 left
+# the newest stored set without the schema fields the excess gate requires, so
+# Friday 08-14 ran with no block at all — the first time since 2026-07-20 — and
+# decisiveness returned to 9 immediately, one run, no other change. Turning the
+# loop off is not a precaution against a suspected cause; it is the remedy for a
+# measured one.
+#
+# The excess gate does not save this. The set mined that same Friday (id=7) does
+# carry the fields, and "BUY es sistemáticamente fallido" comes back at −2.4pp /
+# CONFIRMED 0.93 — clearing ±1.0pp comfortably and ranking second of three. So
+# the gate would have re-injected the collapse driver on the very next run. Nor
+# would ranking by |excess| help: it ranks that pattern second as well. The
+# defect is not which patterns are chosen but that a hit rate mined from one
+# regime is fed back as instruction into another.
+#
+# Mining is deliberately left running: the sets keep landing in
+# prediction_patterns for analysis, they just no longer reach a prompt. Turning
+# this back on requires evidence that injection improves outcomes, not merely
+# that the patterns are true — the sets injected in the table above were the
+# most accurate the miner has ever produced.
+PATTERN_INJECTION_ENV_VAR = "PATTERN_INJECTION_ENABLED"
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def pattern_injection_enabled() -> bool:
+    """Whether mined patterns may reach the per-ticker prompts.
+
+    Read at call time rather than import time so the workflow, a test or an
+    ad-hoc run can flip it without reimporting the module.
+    """
+    return os.environ.get(PATTERN_INJECTION_ENV_VAR, "").strip().lower() in _TRUTHY
 
 
 def _bucket_confidence(v) -> str:
@@ -321,7 +388,19 @@ def select_patterns_for_prompt(latest: dict | None) -> list[dict]:
     quote_type fix, and injecting a known-contaminated set into 63 prompts is
     the exact failure this gate exists to stop. Injection resumes on the first
     Friday mining run after deploy.
+
+    Session 29 put a switch in front of all of it: unless
+    PATTERN_INJECTION_ENABLED is set, this returns [] before reading anything.
+    The gates below stay exactly as they were, so re-enabling restores the
+    session-28 behaviour rather than an untested path.
     """
+    if not pattern_injection_enabled():
+        logger.info(
+            "Pattern injection is disabled (%s unset) — ticker prompts carry no "
+            "patterns block. Mining still runs and still persists.",
+            PATTERN_INJECTION_ENV_VAR,
+        )
+        return []
     if not latest:
         return []
     raw = latest.get("patterns")

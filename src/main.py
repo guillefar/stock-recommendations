@@ -11,6 +11,7 @@ from src.analysis.claude_client import ClaudeClient
 from src.analysis.macro import run_macro_analysis
 from src.analysis.patterns import (
     build_patterns_data,
+    pattern_injection_enabled,
     run_pattern_analysis,
     select_patterns_for_prompt,
     summarize_features,
@@ -136,6 +137,12 @@ def main(dry_run: bool = False, force_retro: bool = False, force_patterns: bool 
         # set — gated to CONFIRMED/REVISED at confidence ≥ 0.7, top 3 — rides
         # into every ticker prompt. Fail-soft: any problem here just means the
         # prompts carry no patterns block; it never costs the run.
+        #
+        # Off by default since session 29 (PATTERN_INJECTION_ENABLED). Mining in
+        # step 11 is untouched and still persists a set every Friday — only the
+        # feedback into the prompts is switched off. The two empty cases are
+        # logged apart because "the loop is off" and "the loop is on and found
+        # nothing" are different situations to be reading about a month later.
         prompt_patterns: list[dict] = []
         try:
             conn.ping(reconnect=True)
@@ -145,7 +152,7 @@ def main(dry_run: bool = False, force_retro: bool = False, force_patterns: bool 
                     f"Injecting {len(prompt_patterns)} mined pattern(s) into ticker "
                     "prompts: " + ", ".join(p["name"] for p in prompt_patterns)
                 )
-            else:
+            elif pattern_injection_enabled():
                 logger.info(
                     "No confirmed high-confidence patterns to inject into ticker prompts"
                 )

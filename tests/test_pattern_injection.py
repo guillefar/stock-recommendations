@@ -7,16 +7,38 @@ weighable biases, never absolute rules. With the gate, the loop ships inert
 (the seed row is all-NEW) and self-activates when a Friday mining run first
 confirms a pattern. Nothing here may ever cost a run: a bad stored row means
 no block, and prompts without patterns stay byte-identical to before.
+
+Session 29 put a kill switch in front of the whole thing after measuring that
+injection drove decisive calls from 7–17 down to 1–3 over four production runs
+in a rising market. The gate below is unchanged and still tested in full — the
+`injection_on` fixture enables it — plus new tests that the switch is off by
+default and short-circuits before anything else.
 """
 
 import json
 from datetime import date, datetime
 from types import SimpleNamespace
 
+import pytest
+
 import src.main as main_mod
 from src.analysis.claude_client import ClaudeClient, _patterns_block
-from src.analysis.patterns import select_patterns_for_prompt
+from src.analysis.patterns import (
+    PATTERN_INJECTION_ENV_VAR,
+    pattern_injection_enabled,
+    select_patterns_for_prompt,
+)
 from src.config import Config
+
+
+@pytest.fixture(autouse=True)
+def injection_on(monkeypatch):
+    """Every test here exercises the gate, which only runs when injection is on.
+
+    Autouse so the session-25/28 tests keep asserting what they always did; the
+    switch tests below opt out with monkeypatch.delenv.
+    """
+    monkeypatch.setenv(PATTERN_INJECTION_ENV_VAR, "1")
 
 TICKER = {"id": 1, "symbol": "AAPL", "name": "Apple", "sector": "Tech", "phase": "WATCHLIST"}
 
@@ -77,6 +99,59 @@ def _client() -> ClaudeClient:
         anthropic_api_key="test-key",
     )
     return ClaudeClient(cfg)
+
+
+# ── the injection kill switch (session 29) ───────────────────────────────────
+
+def test_injection_is_off_by_default(monkeypatch):
+    """The switch must be opt-in: an environment that says nothing means off.
+
+    This is the whole safety property. A deployment that forgets to set the
+    variable gets no injection, which is the state four production runs of
+    evidence say it should be in.
+    """
+    monkeypatch.delenv(PATTERN_INJECTION_ENV_VAR, raising=False)
+    assert pattern_injection_enabled() is False
+    assert select_patterns_for_prompt(_row([CONFIRMED, REVISED])) == []
+
+
+def test_injection_off_short_circuits_before_parsing(monkeypatch):
+    """Disabled means disabled — a row that would otherwise pass every gate,
+    and one that would blow up the parser, both yield [] without inspection."""
+    monkeypatch.delenv(PATTERN_INJECTION_ENV_VAR, raising=False)
+    assert select_patterns_for_prompt({"patterns": "{not json"}) == []
+    assert select_patterns_for_prompt({"patterns": [CONFIRMED]}) == []
+
+
+def test_injection_switch_accepts_the_usual_truthy_spellings(monkeypatch):
+    for value in ("1", "true", "TRUE", " yes ", "on"):
+        monkeypatch.setenv(PATTERN_INJECTION_ENV_VAR, value)
+        assert pattern_injection_enabled() is True, value
+    for value in ("", "0", "false", "no", "off", "maybe"):
+        monkeypatch.setenv(PATTERN_INJECTION_ENV_VAR, value)
+        assert pattern_injection_enabled() is False, value
+
+
+def test_enabling_restores_the_session_28_behaviour(monkeypatch):
+    """Re-enabling must return to the tested path, not a third mode.
+
+    The BUY pattern that drove the collapse is the fixture here on purpose: it
+    clears the excess gate at -3.3pp, which is why the switch had to exist.
+    """
+    buy = {
+        "name": "BUY es sistemáticamente fallido",
+        "description": "Las llamadas BUY rinden por debajo de su cohorte.",
+        "evidence": "BUY: 6% (51 decididas), exceso -3.3pp.",
+        "status": "CONFIRMED",
+        "confidence": 0.93,
+        "excess_return_pp": -3.3,
+        "primary_action": "BUY",
+    }
+    monkeypatch.delenv(PATTERN_INJECTION_ENV_VAR, raising=False)
+    assert select_patterns_for_prompt(_row([buy])) == []
+    monkeypatch.setenv(PATTERN_INJECTION_ENV_VAR, "1")
+    got = select_patterns_for_prompt(_row([buy]))
+    assert [p["name"] for p in got] == ["BUY es sistemáticamente fallido"]
 
 
 # ── select_patterns_for_prompt (the gate) ────────────────────────────────────

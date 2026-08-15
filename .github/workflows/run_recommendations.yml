@@ -40,6 +40,18 @@ jobs:
       - name: Run stock recommendations
         run: python -m src.main
         env:
+          # Patterns→prompt feedback loop, off since session 29. Set to "1" to
+          # re-enable. Four consecutive runs injecting the corrected pattern
+          # sets (08-05 → 08-12) drove decisive calls from a 7–17 historical
+          # range down to 1–3, while the median ticker rose 5.69% over the same
+          # fortnight: every prompt was carrying "BUY es sistemáticamente
+          # fallido: 6% hit rate", mined entirely from the dead −4.80% May–June
+          # window. The 08-14 run injected nothing (the excess gate failed
+          # closed) and decisiveness recovered to 9 in one run — the control.
+          # Weekly mining still runs and still persists; only the feedback into
+          # the prompts is off. Written out explicitly rather than left unset so
+          # the state is visible in the repo.
+          PATTERN_INJECTION_ENABLED: "0"
           DB_HOST: ${{ secrets.DB_HOST }}
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASS: ${{ secrets.DB_PASS }}
@@ -55,6 +67,21 @@ jobs:
       - name: Evaluate recommendation outcomes
         if: ${{ !cancelled() }}
         run: python -m src.evaluate_outcomes
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+
+      # Read-only diagnosis appended to the run's summary page (session 29), so
+      # the decisiveness/mining/health picture is on the record for every run
+      # instead of depending on someone running the script locally afterwards.
+      # continue-on-error: a failed health check must never fail a green run.
+      - name: Post-run health check
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: python scripts/check_run.py
         env:
           DB_HOST: ${{ secrets.DB_HOST }}
           DB_USER: ${{ secrets.DB_USER }}
