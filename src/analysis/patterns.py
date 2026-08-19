@@ -396,9 +396,10 @@ def select_patterns_for_prompt(latest: dict | None) -> list[dict]:
     """
     if not pattern_injection_enabled():
         logger.info(
-            "Pattern injection is disabled (%s unset) — ticker prompts carry no "
+            "Pattern injection is disabled (%s=%r) — ticker prompts carry no "
             "patterns block. Mining still runs and still persists.",
             PATTERN_INJECTION_ENV_VAR,
+            os.environ.get(PATTERN_INJECTION_ENV_VAR),
         )
         return []
     if not latest:

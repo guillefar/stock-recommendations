@@ -23,6 +23,7 @@ load_dotenv()
 
 from src.config import load_config
 from src.db import get_connection
+from src.instrument_vol import instrument_scale
 from src.quote_types import apply_quote_type_overrides
 
 logging.basicConfig(
@@ -72,21 +73,36 @@ HORIZONS = tuple(sorted(HORIZON_BANDS))
 # The scale is the measured ETF/stock mean-absolute-move ratio, which is stable
 # across horizons — 0.317 at 7d and 0.292 at 30d — so one factor serves every
 # horizon and preserves the √time shape and the monotonicity of the base bands.
+#
+# Session 30 demoted this to a *fallback*: the class turned out to be far too
+# coarse a unit (ETFs alone span 8.8x inside it, and the classes overlap), so an
+# instrument with measured history is scaled by its own volatility instead. See
+# src/instrument_vol.py. This constant now serves only the instruments that have
+# none — newly listed tickers, and any added since the last derivation.
 ASSET_CLASS_BAND_SCALE = {"ETF": 0.30}
 
 
-def bands_for(horizon: int, quote_type: str | None = None) -> Bands:
-    """Grading bands for a horizon, scaled to the instrument's asset class.
+def bands_for(
+    horizon: int, quote_type: str | None = None, symbol: str | None = None
+) -> Bands:
+    """Grading bands for a horizon, scaled to the instrument's own volatility.
 
-    quote_type None/unknown keeps the unscaled single-stock bands. Session 28
-    narrowed what reaches here as unknown: two of the three untyped tickers were
-    ETFs all along (see src.quote_types), and "conservative default" was the
-    wrong frame for them — stock bands on a 1.3%-a-month fund are not cautious,
-    they auto-pass its HOLDs and auto-fail its WATCHes. What remains unscaled is
-    ^STOXX50E, an index rather than a holdable instrument.
+    Precedence, most specific first — one place, so the fallback chain is
+    readable rather than spread across call sites:
+
+    1. the instrument's measured scale (src.instrument_vol, session 30),
+    2. its asset class (ASSET_CLASS_BAND_SCALE, session 26),
+    3. unscaled single-stock bands.
+
+    Reaching step 3 now means a ticker so new it has neither a measured history
+    nor a known class. Session 28's warning applies to it: unscaled is not the
+    "conservative" default, it is the single-stock default, and it auto-passes
+    the HOLDs and auto-fails the WATCHes of anything calmer than a stock.
     """
     base = HORIZON_BANDS[horizon]
-    scale = ASSET_CLASS_BAND_SCALE.get((quote_type or "").upper())
+    scale = instrument_scale(symbol)
+    if scale is None:
+        scale = ASSET_CLASS_BAND_SCALE.get((quote_type or "").upper())
     if scale is None:
         return base
     return Bands(
@@ -105,22 +121,25 @@ def grade(
     forward_return: float,
     horizon: int = 7,
     quote_type: str | None = None,
+    symbol: str | None = None,
 ) -> str:
     """Verdict for a recommendation given its forward return at a horizon.
 
     Semantics (decisions log, 2026-06-12 session 06; per-horizon bands
-    2026-07-10 session 14; per-asset-class band scaling 2026-07-30 session 26):
+    2026-07-10 session 14; per-asset-class band scaling 2026-07-30 session 26;
+    per-instrument scaling 2026-08-17 session 30):
     - BUY is bullish, SELL/AVOID bearish, with a ±neutral-band zone.
     - WATCH is direction-agnostic: CORRECT if |return| ≥ the watch-move
       threshold, INCORRECT if |return| < the neutral band (the watch wasted
       attention), else NEUTRAL.
     - HOLD: CORRECT if flat (|return| ≤ neutral band), INCORRECT below the
       hold-loss band, else NEUTRAL. Upside is never penalized.
-    - Bands are scaled per asset class (see ASSET_CLASS_BAND_SCALE) so a verdict
-      means the same thing on a 2.6%-a-month ETF as on a 10.7%-a-month stock.
+    - Bands are scaled to the instrument's own measured volatility (see
+      bands_for) so a verdict means the same thing on a 2.4%-a-month tracker as
+      on a 35%-a-month small cap: it measures the call, not the beta.
     Returns 'CORRECT', 'INCORRECT', or 'NEUTRAL'.
     """
-    b = bands_for(horizon, quote_type)
+    b = bands_for(horizon, quote_type, symbol)
     if action == "BUY":
         if forward_return > b.neutral:
             return "CORRECT"
@@ -271,7 +290,10 @@ def main(dry_run: bool = False, regrade: bool = False) -> None:
                 if entry is None or exit_ is None or entry == 0:
                     continue  # missing entry price or no matured price in either table
                 fwd = float(exit_) / float(entry) - 1.0
-                verdict = grade(row["action"], fwd, horizon, row.get("quote_type"))
+                verdict = grade(
+                    row["action"], fwd, horizon, row.get("quote_type"),
+                    row.get("symbol"),
+                )
                 graded += 1
                 if dry_run:
                     logger.info(

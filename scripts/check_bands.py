@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Re-derive ASSET_CLASS_BAND_SCALE from live outcomes. Run quarterly.
 
+NOTE (session 30): this constant is now only the **fallback** for instruments
+with no measured history. Grading is scaled per instrument — re-derive that
+table with `scripts/derive_instrument_scales.py`, which is the one that matters
+for almost every ticker. This check still earns its keep: the class ratio is
+what a newly listed ticker is graded on until the next derivation.
+
+
 Session 26 set `ASSET_CLASS_BAND_SCALE = {"ETF": 0.30}` in
 src/evaluate_outcomes.py — the measured ratio of ETF to stock mean absolute
 forward return, which was stable across horizons (0.317 at 7d, 0.292 at 30d).
