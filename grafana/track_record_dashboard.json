@@ -49,7 +49,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT ROUND(100*SUM(verdict='CORRECT')/\n  NULLIF(SUM(verdict IN('CORRECT','INCORRECT')),0),0) AS v\nFROM recommendation_outcomes\nWHERE horizon_days=30 AND $__timeFilter(generated_at)"
+                      "rawSql": "-- Null baseline 65.8%: what randomly shuffled calls score at 30d under\n-- this grading scheme (scripts/check_null_baseline.py, seed 20260819,\n-- session 31). Re-derive whenever the bands or the action mix change --\n-- a stale null silently turns this tile back into a hit rate.\nSELECT ROUND(100*SUM(verdict='CORRECT')/\n  NULLIF(SUM(verdict IN('CORRECT','INCORRECT')),0) - 65.8, 1) AS v\nFROM recommendation_outcomes\nWHERE horizon_days=30 AND $__timeFilter(generated_at)"
                     },
                     "version": "v0"
                   },
@@ -61,17 +61,17 @@
             "transformations": []
           }
         },
-        "description": "CORRECT \u00f7 (CORRECT+INCORRECT) across all graded 30-day outcomes in range \u2014 the long-term headline metric.",
+        "description": "The headline. Hit rate MINUS the rate skill-free calls score under this grading scheme (null = 65.8% at 30d), in percentage points. Positive means the calls beat chance; 0 means the scorecard is measuring the grading scheme rather than the system. The raw rate is the tile to the right \u2014 it is not interpretable on its own, because HOLD scores by standing still and WATCH by anything moving, and those two are 89% of all calls. Null pinned by scripts/check_null_baseline.py (session 31).",
         "id": 1,
         "links": [],
-        "title": "Overall hit rate (30d)",
+        "title": "Hit rate vs null (30d)",
         "vizConfig": {
           "group": "stat",
           "kind": "VizConfig",
           "spec": {
             "fieldConfig": {
               "defaults": {
-                "unit": "percent",
+                "unit": "none",
                 "color": {
                   "mode": "thresholds"
                 },
@@ -80,19 +80,20 @@
                   "steps": [
                     {
                       "color": "red",
-                      "value": 0
+                      "value": -100
                     },
                     {
                       "color": "yellow",
-                      "value": 50
+                      "value": 0
                     },
                     {
                       "color": "green",
-                      "value": 60
+                      "value": 5
                     }
                   ]
                 },
-                "mappings": []
+                "mappings": [],
+                "decimals": 1
               },
               "overrides": []
             },
@@ -307,7 +308,7 @@
             },
             "options": {
               "mode": "markdown",
-              "content": "### How to read this dashboard\n\n**Hit rate = CORRECT \u00f7 (CORRECT + INCORRECT)** \u2014 *neutral calls are excluded*, so a low hit rate and a low sample size often go together.\n\n- \ud83d\udfe2 **CORRECT** \u2014 the call's thesis played out within the horizon.\n- \u26aa **NEUTRAL** \u2014 the move was too small to judge (not counted in the hit rate).\n- \ud83d\udd34 **INCORRECT** \u2014 the price moved against the call.\n\n**Decisiveness** = share of graded calls that were *not* neutral. All tiles and tables use the **30-day** horizon (long-term orientation); 7d appears on the trend chart as a short-term timing diagnostic. 90d, 6m (180d) and 1y series fill in as outcomes mature (first 90d \u2248 Aug 2026, first 6m \u2248 Nov 2026, first 1y \u2248 May 2027). Grading bands widen with the horizon (e.g. a 1-year BUY must beat +15%, not +4%) and scale to **each instrument's own measured volatility** (a tracker whose month moves 2.4% is graded on bands ~0.13\u00d7 a typical stock's, a small cap that moves 35% on ~1.9\u00d7 \u2014 so a verdict measures the call, not the beta). Asset class alone was too coarse: ETFs spanned 8.8\u00d7 inside it, and the extremes were graded on bands that decided the verdict before the call was read \u2014 the index scored 0 correct watches out of 22, ever, while the calmest funds collected free holds (corrected 2026-08-17; asset-class scaling 2026-07-30). In the sector table, **ETF** groups all exchange-traded funds (they have no sector of their own). Use the time picker (top-right) to scope a period.",
+              "content": "### How to read this dashboard\n\n**Read the excess, not the hit rate.** Hit rate = CORRECT \u00f7 (CORRECT + INCORRECT), *neutral calls excluded*. But that number has no meaning on its own: under this grading scheme **randomly shuffled, skill-free calls score ~66%** at 30d, because HOLD is CORRECT when the price stays flat and WATCH is CORRECT when it moves, and those two carry **89% of all calls** \u2014 so almost any outcome lands on the good side of something. The headline tile is therefore **hit rate minus that null, in percentage points**: 0 means chance, positive means the calls beat it. The grey tile keeps the raw rate for continuity (measured 2026-08-19, null pinned by `scripts/check_null_baseline.py`).\n\nOne caveat the tiles cannot show: the +2.7pp excess measured in session 31 comes from *which instruments* get which action, not from timing. Shuffle the actions within each ticker \u2014 holding instrument choice fixed \u2014 and the excess goes to **\u22122.3pp**. Treat a small positive excess as \"not yet distinguishable from chance\", not as evidence.\n\n- \ud83d\udfe2 **CORRECT** \u2014 the call's thesis played out within the horizon.\n- \u26aa **NEUTRAL** \u2014 the move was too small to judge (not counted in the hit rate).\n- \ud83d\udd34 **INCORRECT** \u2014 the price moved against the call.\n\n**Decisiveness** = share of graded calls that were *not* neutral. Per-action hit rates have their *own* very different nulls (WATCH ~79%, HOLD ~40% at 30d), so they cannot be compared with each other or with the headline. All tiles and tables use the **30-day** horizon (long-term orientation); 7d appears on the trend chart as a short-term timing diagnostic. 90d, 6m (180d) and 1y series fill in as outcomes mature (first 90d \u2248 Aug 2026, first 6m \u2248 Nov 2026, first 1y \u2248 May 2027). Grading bands widen with the horizon (e.g. a 1-year BUY must beat +15%, not +4%) and scale to **each instrument's own measured volatility** (a tracker whose month moves 2.4% is graded on bands ~0.13\u00d7 a typical stock's, a small cap that moves 35% on ~1.9\u00d7 \u2014 so a verdict measures the call, not the beta). Asset class alone was too coarse: ETFs spanned 8.8\u00d7 inside it, and the extremes were graded on bands that decided the verdict before the call was read \u2014 the index scored 0 correct watches out of 22, ever, while the calmest funds collected free holds (corrected 2026-08-17; asset-class scaling 2026-07-30). In the sector table, **ETF** groups all exchange-traded funds (they have no sector of their own). Use the time picker (top-right) to scope a period.",
               "code": {
                 "language": "plaintext",
                 "showLineNumbers": false,
@@ -340,7 +341,7 @@
                       "editorMode": "code",
                       "format": "table",
                       "rawQuery": true,
-                      "rawSql": "SELECT UNIX_TIMESTAMP(DATE(generated_at) - INTERVAL WEEKDAY(generated_at) DAY) AS time_sec, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=30)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=30),0),0) AS `30d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=7)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=7),0),0) AS `7d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=90)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=90),0),0) AS `90d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=180)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=180),0),0) AS `180d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=365)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=365),0),0) AS `365d hit %`, SUM(horizon_days=30 AND verdict IN('CORRECT','INCORRECT')) AS `30d decided` FROM recommendation_outcomes WHERE $__timeFilter(generated_at) GROUP BY time_sec ORDER BY time_sec"
+                      "rawSql": "SELECT UNIX_TIMESTAMP(DATE(generated_at) - INTERVAL WEEKDAY(generated_at) DAY) AS time_sec, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=30)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=30),0),0) AS `30d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=7)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=7),0),0) AS `7d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=90)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=90),0),0) AS `90d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=180)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=180),0),0) AS `180d hit %`, ROUND(100*SUM(verdict='CORRECT' AND horizon_days=365)/ NULLIF(SUM(verdict IN('CORRECT','INCORRECT') AND horizon_days=365),0),0) AS `365d hit %`, SUM(horizon_days=30 AND verdict IN('CORRECT','INCORRECT')) AS `30d decided`, 65.8 AS `null (chance)` FROM recommendation_outcomes WHERE $__timeFilter(generated_at) GROUP BY time_sec ORDER BY time_sec"
                     },
                     "version": "v0"
                   },
@@ -352,7 +353,7 @@
             "transformations": []
           }
         },
-        "description": "Weekly hit rate by horizon (Monday-anchored weeks). 30d (green) is the headline; 7d is a short-term timing diagnostic; 90d (blue), 6m (orange) and 1y (purple) fill in as they mature. The light bars (right axis) show how many 30-day calls were decided that week \u2014 thin bars mean a noisy hit rate.",
+        "description": "Weekly hit rate by horizon (Monday-anchored weeks). 30d (green) is the headline; 7d is a short-term timing diagnostic; 90d (blue), 6m (orange) and 1y (purple) fill in as they mature. The light bars (right axis) show how many 30-day calls were decided that week \u2014 thin bars mean a noisy hit rate. The dashed red line is the **null**: what shuffled, skill-free calls score under this grading scheme (65.8% at 30d and 7d; the 90d null is higher, ~76%). A series sitting on that line is measuring the scheme, not the system.",
         "id": 5,
         "links": [],
         "title": "Hit rate over time (weekly)",
@@ -526,6 +527,39 @@
                     {
                       "id": "min",
                       "value": 0
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "null (chance)"
+                  },
+                  "properties": [
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "red"
+                      }
+                    },
+                    {
+                      "id": "custom.lineStyle",
+                      "value": {
+                        "fill": "dash",
+                        "dash": [
+                          10,
+                          10
+                        ]
+                      }
+                    },
+                    {
+                      "id": "custom.lineWidth",
+                      "value": 1
+                    },
+                    {
+                      "id": "custom.showPoints",
+                      "value": "never"
                     }
                   ]
                 }
@@ -918,6 +952,81 @@
           "version": "13.1.0-27127308516"
         }
       }
+    },
+    "panel-8": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "cfadv004ogglcf"
+                    },
+                    "group": "mysql",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "format": "table",
+                      "rawQuery": true,
+                      "rawSql": "SELECT ROUND(100*SUM(verdict='CORRECT')/\n  NULLIF(SUM(verdict IN('CORRECT','INCORRECT')),0),1) AS v\nFROM recommendation_outcomes\nWHERE horizon_days=30 AND $__timeFilter(generated_at)"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "CORRECT \u00f7 (CORRECT+INCORRECT) at 30d \u2014 the number this scorecard showed as the headline from session 10 to session 30. Kept for continuity and deliberately shown in grey: on its own it says nothing, because ~66% is what shuffled calls score. Read the tile to its left instead.",
+        "id": 8,
+        "links": [],
+        "title": "Raw hit rate (30d)",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "color": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                },
+                "mappings": [],
+                "decimals": 1
+              },
+              "overrides": []
+            },
+            "options": {
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "colorMode": "value",
+              "graphMode": "none",
+              "justifyMode": "auto",
+              "textMode": "auto",
+              "orientation": "auto",
+              "showPercentChange": false,
+              "wideLayout": true,
+              "percentChangeColorMode": "standard"
+            }
+          },
+          "version": "13.2.0-28852654685"
+        }
+      }
     }
   },
   "layout": {
@@ -942,11 +1051,24 @@
           "spec": {
             "element": {
               "kind": "ElementReference",
+              "name": "panel-8"
+            },
+            "height": 6,
+            "width": 4,
+            "x": 5,
+            "y": 0
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
               "name": "panel-2"
             },
             "height": 6,
-            "width": 5,
-            "x": 5,
+            "width": 4,
+            "x": 9,
             "y": 0
           }
         },
@@ -958,8 +1080,8 @@
               "name": "panel-3"
             },
             "height": 6,
-            "width": 4,
-            "x": 10,
+            "width": 3,
+            "x": 13,
             "y": 0
           }
         },
@@ -971,8 +1093,8 @@
               "name": "panel-4"
             },
             "height": 6,
-            "width": 10,
-            "x": 14,
+            "width": 8,
+            "x": 16,
             "y": 0
           }
         },

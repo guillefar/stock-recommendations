@@ -7,7 +7,7 @@ from a phone on the run's own GitHub page and archived with the run — the poin
 being that nobody has to be at a particular computer on a particular weekday for
 the evidence to survive. Everything here is a read; it never writes.
 
-Three questions:
+Four questions:
 
   1. **Decisiveness.** Is the system still making actionable calls? This is the
      one that matters. Sessions 26–28 each fixed what the feedback loop learned
@@ -18,6 +18,14 @@ Three questions:
      session-28 schema fields? Mining still runs with injection off.
   3. **Run health.** 63 ok, cost in range, and whether a long batch ever logged
      a *partial* tickers_ok (batch resilience, merged in s26, still unexercised).
+  4. **Hit rate against its null.** Never print the hit rate alone: session 30
+     found that skill-free calls score ~65% under this grading scheme, so the
+     bare number is decoration. Printed here as an excess so a glance at the run
+     summary cannot misread it (session 31).
+
+Exits non-zero on a decisiveness collapse. The workflow step is
+`continue-on-error`, so this surfaces a red X on the run without failing it —
+the 08-05 → 08-12 collapse ran four runs before a human noticed.
 
 Historical decisive (BUY+SELL) range with the artifact set injected: 7–17.
 Injection of the *corrected* sets (id=5 from 08-05, id=6 from 08-10) produced
@@ -84,6 +92,7 @@ for r in cur.fetchall():
 
 say(f"{'date':12s} {'tot':>4s} " + " ".join(f"{a:>6s}" for a in ACTIONS)
     + f" {'DECIS':>6s}  {'injected':14s} verdict")
+collapsed = []
 for d in sorted(days):
     row = days[d]
     # Decisive = BUY + SELL. The sharper signal: prompt pressure does not flip
@@ -93,6 +102,7 @@ for d in sorted(days):
     injected = INJECTED.get(d, "none (off)")
     if decisive <= 4:
         verdict = f"*** COLLAPSED ({decisive} vs 7-17) ***"
+        collapsed.append(d)
     elif decisive <= 6:
         verdict = f"*** low: {decisive} vs 7-17 ***"
     else:
@@ -148,6 +158,43 @@ for r in cur.fetchall():
     say(f"  id={r['id']:<3d} {r['run_at']}  calls={r['calls']:<3d} "
         f"${r['c']}  ok={r['ok']:<3d} failed={r['f']}{flag}{partial}")
 
+say()
+say("=" * 78)
+say("4. HIT RATE vs ITS NULL  —  is the scorecard measuring anything?")
+say("=" * 78)
+# Pinned by scripts/check_null_baseline.py (session 31, seed 20260819): the rate
+# that randomly shuffled, skill-free calls score under this grading scheme. It
+# is high because HOLD scores CORRECT by standing still and WATCH by anything
+# moving, and those two are 89% of all calls. Re-derive whenever the bands or
+# the action mix change — a stale null turns the excess back into a hit rate.
+NULL_BASELINE = {7: 66.5, 30: 65.8, 90: 76.1}
+cur.execute("""
+    SELECT horizon_days h,
+           SUM(verdict='CORRECT') c,
+           SUM(verdict IN ('CORRECT','INCORRECT')) decided
+    FROM recommendation_outcomes GROUP BY horizon_days ORDER BY horizon_days
+""")
+for r in cur.fetchall():
+    if not r["decided"]:
+        continue
+    # SUM() comes back as Decimal; float() so the arithmetic below is plain.
+    raw = 100.0 * float(r["c"]) / float(r["decided"])
+    null = NULL_BASELINE.get(r["h"])
+    if null is None:
+        say(f"  {r['h']:>3d}d  hit {raw:5.1f}%  (n={int(r['decided'])})   "
+            "no null pinned for this horizon — do not read the rate alone")
+        continue
+    excess = raw - null
+    verdict = "beats chance" if excess >= 5 else (
+        "at chance — decoration" if excess > -5 else "WORSE than chance")
+    say(f"  {r['h']:>3d}d  hit {raw:5.1f}%  null {null:4.1f}%  "
+        f"excess {excess:+5.1f}pp  (n={int(r['decided'])})  {verdict}")
+say()
+say("Excess is the number that means something. Session 31 also found the small")
+say("positive excess is instrument selection, not timing: shuffle actions within")
+say("each ticker and 30d goes to -2.3pp. Run scripts/check_null_baseline.py for")
+say("the full decomposition and its caveats.")
+
 conn.close()
 
 # In CI, repeat the whole thing into the run's summary page. Wrapped in a code
@@ -156,3 +203,11 @@ summary = os.environ.get("GITHUB_STEP_SUMMARY")
 if summary:
     with open(summary, "a", encoding="utf-8") as fh:
         fh.write("## Post-run health check\n\n```\n" + "\n".join(_out) + "\n```\n")
+
+# Exit non-zero only when the *latest* run collapsed — the 08-05 → 08-12 rows
+# are history and must not keep the check permanently red. The workflow step is
+# continue-on-error, so this marks the run without failing it (carried from
+# session 29's suggestions; the original collapse went four runs unnoticed).
+if collapsed and collapsed[-1] == max(days):
+    sys.exit(f"check_run: decisiveness collapsed on {collapsed[-1]} — "
+             "BUY+SELL <= 4 against a historical range of 7-17")
